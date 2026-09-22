@@ -1,0 +1,72 @@
+name: benchpad_app
+description: BenchPad native app (Flutter) — recreated from the BenchPad PWA.
+publish_to: 'none'
+version: 0.1.0+2
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # Networking
+  http: ^1.2.1
+  receive_sharing_intent: ^1.8.1
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.9.4
+
+  # Image picking (camera / gallery) — Advertise screen upload
+  image_picker: ^1.1.2
+
+  # Local persistence (device id, cached settings, recently-viewed capsules)
+  shared_preferences: ^2.2.3
+
+  # Native share sheet — used for Memory Sphere's "Share capsule" action
+  share_plus: ^10.1.4
+
+  # Location for Interactions screen (NFC/QR + GPS activity log)
+  geolocator: ^12.0.0
+
+  # State management — simple, matches the PWA's straightforward single-page state
+  provider: ^6.1.2
+
+  # QR code generation for the Content Studio screen
+  qr_flutter: ^4.1.0
+
+  # Autoplay/loop video for the BenchPad presentation tile on Home
+  video_player: ^2.9.2
+
+  # Opening Google Maps directions from a partner's profile
+  url_launcher: ^6.3.1
+
+  # Font picker for the Advertise text-overlay compositor
+  google_fonts: ^6.2.1
+
+  # JPEG encoding for the Advertise publish payload (dart:ui only
+  # exports PNG natively, which is far too large for photographic
+  # content and was tripping the server's payload-size limit)
+  image: ^4.3.0
+
+  # Gyroscope input for the Kinetic Energy page's tilt-reactive liquid
+  # battery visualization
+  sensors_plus: ^6.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/images/partners/
+    - assets/images/partner-logos/
+    - assets/globe/
+    - assets/images/weather/
+    - assets/images/bench/
+    - assets/images/social/
+    - assets/video/
+    - assets/video/partners/
