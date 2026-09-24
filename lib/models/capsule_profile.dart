@@ -1,4 +1,4 @@
-/// One capsule "profile" in the Memory Sphere — a person's time capsule
+/// One capsule "profile" in the Time Capsule 2 — a person's time capsule
 /// entry. Loaded from the real /api/capsules/sphere endpoint (only
 /// non-empty capsules come back; positions with no matching row are
 /// genuinely empty) — was briefly a bundled demo JSON with all 500

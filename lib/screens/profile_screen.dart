@@ -1,39 +1,14 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import '../services/benchpad_api.dart';
 import '../services/notification_service.dart';
+import '../services/capsule_store.dart';
 import '../widgets/home_back_leading.dart';
-import '../theme/neumorphic_theme.dart';
+import '../theme/benchpad_dark_theme.dart';
 import 'vault_sphere_screen.dart';
 import 'memory_sphere_screen.dart';
+import 'hex_grid_screen.dart';
 import 'capsule_creator_screen.dart';
-import 'key_journey_screen.dart';
-import 'unlocks_screen.dart';
-import 'live_access_screen.dart';
-
-/// Remembers which capsules were successfully opened on this device —
-/// the PWA does the same via its own localStorage time-capsule-store.js
-/// (its capsule DATA is local-only there; ours is server-backed, so
-/// this just remembers which access keys to re-query on Profile).
-class _CapsuleStore {
-  static const _prefsKey = 'benchpad_my_capsules_v1';
-
-  static Future<List<Map<String, dynamic>>> list() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getStringList(_prefsKey) ?? [];
-    return raw.map((s) => jsonDecode(s) as Map<String, dynamic>).toList();
-  }
-
-  static Future<void> remember(Map<String, dynamic> record) async {
-    final prefs = await SharedPreferences.getInstance();
-    final existing = await list();
-    existing.removeWhere((r) => r['sphere'] == record['sphere'] && r['type'] == record['type'] && r['number'] == record['number']);
-    existing.insert(0, record);
-    await prefs.setStringList(_prefsKey, existing.map((r) => jsonEncode(r)).toList());
-  }
-}
 
 /// My Profile — ported from benchpad-profile.html.
 ///
@@ -70,7 +45,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadMyCapsules() async {
-    final list = await _CapsuleStore.list();
+    final list = await CapsuleStore.list();
     if (mounted) setState(() => _myCapsules = list);
   }
 
@@ -93,7 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final type = (data['type'] ?? 'standard') as String;
       final number = (data['number'] as num?)?.toInt() ?? 1;
       final sphere = (data['sphere'] ?? 'vault') as String;
-      await _CapsuleStore.remember({'accessKey': key, 'sphere': sphere, 'type': type, 'number': number, 'status': data['status']});
+      await CapsuleStore.remember({'accessKey': key, 'sphere': sphere, 'type': type, 'number': number, 'status': data['status']});
       final openingDateStr = data['openingDate'] as String?;
       if (openingDateStr != null) {
         final openingDate = DateTime.tryParse(openingDateStr);
@@ -101,13 +76,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           NotificationService.instance.scheduleCapsuleOpening(
             notificationId: key.hashCode & 0x7fffffff,
             title: 'Your capsule has opened',
-            body: '${sphere == 'orbit' ? 'Memory Sphere' : 'Vault Sphere'} capsule is ready to view.',
+            body: '${sphere == 'orbit' ? 'Time Capsule 2' : 'Time Capsule 1'} capsule is ready to view.',
             openingDate: openingDate,
           );
         }
       }
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => CapsuleCreatorScreen(type: type, number: number, ownerKey: key)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => CapsuleCreatorScreen(type: type, number: number, ownerKey: key, sphere: sphere)));
       _loadMyCapsules();
     } catch (e) {
       setState(() => _error = e.toString().contains('404') || e.toString().toLowerCase().contains('not found')
@@ -122,10 +97,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     return Theme(
       data: Theme.of(context).copyWith(
-        scaffoldBackgroundColor: NeumorphicPalette.background,
+        scaffoldBackgroundColor: BPColors.bg,
         appBarTheme: const AppBarTheme(
-          backgroundColor: NeumorphicPalette.background,
-          foregroundColor: NeumorphicPalette.textPrimary,
+          backgroundColor: BPColors.bg,
+          foregroundColor: BPColors.textPrimary,
           elevation: 0,
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
@@ -146,7 +121,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              NeumorphicBox(
+              DarkCard(
                 flat: true,
                 borderRadius: 24,
                 child: Column(
@@ -154,9 +129,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     Row(
                       children: const [
-                        Icon(Icons.circle, size: 8, color: NeumorphicPalette.danger),
+                        Icon(Icons.circle, size: 8, color: BPColors.danger),
                         SizedBox(width: 8),
-                        Text('No key connected', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
+                        Text('No key connected', style: TextStyle(color: BPColors.textSecondary, fontSize: 12)),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -164,7 +139,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 8),
                     const Text(
                       'FIND YOUR PLACE IN\nBENCHPAD WORLD',
-                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: NeumorphicPalette.textPrimary, height: 1.1, letterSpacing: -0.5),
+                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: BPColors.textPrimary, height: 1.1, letterSpacing: -0.5),
                     ),
                     const SizedBox(height: 16),
                     Container(
@@ -181,7 +156,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           SizedBox(height: 6),
                           Text(
                             'Your member number and private features will appear here after you claim a capsule or Founding Key.',
-                            style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12),
+                            style: TextStyle(color: BPColors.textSecondary, fontSize: 12),
                           ),
                         ],
                       ),
@@ -192,7 +167,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 16),
               const _ProfileCapsuleVideo(),
               const SizedBox(height: 16),
-              NeumorphicBox(
+              DarkCard(
                 flat: true,
                 borderRadius: 20,
                 child: Column(
@@ -200,59 +175,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     const Text('BENCHPAD KEY', style: TextStyle(color: _gold, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1)),
                     const SizedBox(height: 6),
-                    const Text('Member ######', style: TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
+                    const Text('Member ######', style: TextStyle(color: BPColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 16),
                     const Text(
-                      'Choose Vault Sphere or Memory Sphere to create your first Time Capsule.',
+                      'Choose Time Capsule 1, 2 or 3 to create your first one.',
                       style: TextStyle(color: _gold, fontSize: 14, fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
                         Expanded(
-                          child: NeumorphicBox(
+                          child: DarkCard(
                             soft: true,
                             borderRadius: 12,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VaultSphereScreen())),
-                            child: const Center(child: Text('VAULT SPHERE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary))),
+                            child: const Center(child: Text('TIME CAPSULE 1', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: BPColors.textPrimary))),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
-                          child: NeumorphicBox(
+                          child: DarkCard(
                             soft: true,
                             borderRadius: 12,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MemorySphereScreen())),
-                            child: const Center(child: Text('MEMORY SPHERE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary))),
+                            child: const Center(child: Text('TIME CAPSULE 2', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: BPColors.textPrimary))),
                           ),
                         ),
                       ],
                     ),
+                    const SizedBox(height: 10),
+                    DarkCard(
+                      soft: true,
+                      borderRadius: 12,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HexGridScreen())),
+                      child: const Center(child: Text('TIME CAPSULE 3', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: BPColors.textPrimary))),
+                    ),
                     const SizedBox(height: 20),
-                    const Divider(color: NeumorphicPalette.shadowDark),
+                    const Divider(color: BPColors.border),
                     const SizedBox(height: 16),
-                    const Text('ALREADY HAVE A CAPSULE?', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                    const Text('ALREADY HAVE A CAPSULE?', style: TextStyle(color: BPColors.yellow, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
                     const SizedBox(height: 6),
                     const Text(
                       'Enter the access key you received when your capsule was set up. It looks like BP-XXXXX-XXXXX.',
-                      style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12),
+                      style: TextStyle(color: BPColors.textSecondary, fontSize: 12),
                     ),
                     const SizedBox(height: 12),
-                    NeumorphicBox(
+                    DarkCard(
                       flat: true,
                       borderRadius: 12,
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                       child: TextField(
                         controller: _keyController,
                         textCapitalization: TextCapitalization.characters,
-                        style: const TextStyle(fontFamily: 'monospace', letterSpacing: 1, fontSize: 13, color: NeumorphicPalette.textPrimary),
+                        style: const TextStyle(fontFamily: 'monospace', letterSpacing: 1, fontSize: 13, color: BPColors.textPrimary),
                         decoration: const InputDecoration(
                           labelText: 'ACCESS KEY',
-                          labelStyle: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11),
+                          labelStyle: TextStyle(color: BPColors.textSecondary, fontSize: 11),
                           hintText: 'BP-XXXXX-XXXXX',
-                          hintStyle: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 13),
+                          hintStyle: TextStyle(color: BPColors.textSecondary, fontSize: 13),
                           border: InputBorder.none,
                           filled: false,
                         ),
@@ -261,13 +244,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 8),
-                      Text(_error!, style: const TextStyle(color: NeumorphicPalette.danger, fontSize: 12)),
+                      Text(_error!, style: const TextStyle(color: BPColors.danger, fontSize: 12)),
                     ],
                     const SizedBox(height: 14),
-                    NeumorphicBox(
+                    DarkCard(
                       borderRadius: 14,
                       onTap: _busy ? null : _openMyCapsule,
-                      child: Center(child: Text(_busy ? 'Searching...' : 'OPEN MY CAPSULE', style: const TextStyle(color: NeumorphicPalette.accent, fontWeight: FontWeight.w800, fontSize: 13))),
+                      child: Center(child: Text(_busy ? 'Searching...' : 'OPEN MY CAPSULE', style: const TextStyle(color: BPColors.yellow, fontWeight: FontWeight.w800, fontSize: 13))),
                     ),
                   ],
                 ),
@@ -276,16 +259,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
               if (_myCapsules.isNotEmpty) ...[
                 Row(
                   children: [
-                    const Text('TIME CAPSULES', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                    const Text('TIME CAPSULES', style: TextStyle(color: BPColors.textSecondary, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
                     const SizedBox(width: 8),
-                    const Expanded(child: Text('My Capsules', style: TextStyle(color: NeumorphicPalette.textPrimary, fontWeight: FontWeight.w800, fontSize: 14))),
-                    Text('${_myCapsules.length} ACTIVE', style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10, fontWeight: FontWeight.w700)),
+                    const Expanded(child: Text('My Capsules', style: TextStyle(color: BPColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 14))),
+                    Text('${_myCapsules.length} ACTIVE', style: const TextStyle(color: BPColors.textSecondary, fontSize: 10, fontWeight: FontWeight.w700)),
                   ],
                 ),
                 const SizedBox(height: 10),
                 ..._myCapsules.map((r) => Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: NeumorphicBox(
+                      child: DarkCard(
                         flat: true,
                         borderRadius: 14,
                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CapsuleCreatorScreen(type: r['type'] as String, number: (r['number'] as num).toInt(), ownerKey: r['accessKey'] as String))),
@@ -295,21 +278,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               width: 40,
                               height: 40,
                               alignment: Alignment.center,
-                              decoration: BoxDecoration(shape: BoxShape.circle, color: NeumorphicPalette.accent.withOpacity(0.1)),
-                              child: Text(r['sphere'] == 'orbit' ? '●' : (r['type'] == 'core' ? '⬟' : '⬡'), style: const TextStyle(color: NeumorphicPalette.accent, fontSize: 18)),
+                              decoration: BoxDecoration(shape: BoxShape.circle, color: BPColors.yellow.withOpacity(0.1)),
+                              child: Text(r['sphere'] == 'orbit' ? '●' : (r['type'] == 'core' ? '⬟' : '⬡'), style: const TextStyle(color: BPColors.yellow, fontSize: 18)),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('${r['sphere'] == 'orbit' ? 'MEMORY SPHERE' : 'VAULT SPHERE'} · ${(r['status'] as String? ?? 'locked').toUpperCase()}', style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 8, fontWeight: FontWeight.w800)),
+                                  Text('${r['sphere'] == 'orbit' ? 'TIME CAPSULE 2' : 'TIME CAPSULE 1'} · ${(r['status'] as String? ?? 'locked').toUpperCase()}', style: const TextStyle(color: BPColors.textSecondary, fontSize: 8, fontWeight: FontWeight.w800)),
                                   const SizedBox(height: 3),
-                                  Text(_capsuleDisplayId(r), style: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 12, fontWeight: FontWeight.w800)),
+                                  Text(_capsuleDisplayId(r), style: const TextStyle(color: BPColors.textPrimary, fontSize: 12, fontWeight: FontWeight.w800)),
                                 ],
                               ),
                             ),
-                            const Icon(Icons.chevron_right, size: 18, color: NeumorphicPalette.textSecondary),
+                            const Icon(Icons.chevron_right, size: 18, color: BPColors.textSecondary),
                           ],
                         ),
                       ),
@@ -323,14 +306,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Expanded(child: _metaCell('STATUS', '----')),
                 ],
               ),
-              const SizedBox(height: 20),
-              const Text('YOUR JOURNEY', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1)),
-              const SizedBox(height: 10),
-              _journeyLink('Key Journey', 'Your Founding Key has a story', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const KeyJourneyScreen()))),
-              const SizedBox(height: 8),
-              _journeyLink('Unlocks', 'Your access can grow', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UnlocksScreen()))),
-              const SizedBox(height: 8),
-              _journeyLink('Live Access', 'Control a real BenchPad', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LiveAccessScreen()))),
             ],
           ),
         ),
@@ -341,44 +316,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// Matches the PWA's own describe() id formatting exactly.
   String _capsuleDisplayId(Map<String, dynamic> r) {
     final number = (r['number'] as num).toInt();
-    if (r['sphere'] == 'orbit') return 'MEMORY SPHERE ${number.toString().padLeft(3, '0')}';
+    if (r['sphere'] == 'orbit') return 'BP-ORB-${number.toString().padLeft(6, '0')}';
     if (r['type'] == 'core') return 'BP-CORE-${number.toString().padLeft(2, '0')}';
     return 'BP-TC-${number.toString().padLeft(6, '0')}';
   }
 
-  Widget _journeyLink(String title, String subtitle, VoidCallback onTap) {
-    return NeumorphicBox(
-      flat: true,
-      borderRadius: 14,
-      onTap: onTap,
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: NeumorphicPalette.textPrimary)),
-                const SizedBox(height: 2),
-                Text(subtitle, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11)),
-              ],
-            ),
-          ),
-          const Icon(Icons.chevron_right, size: 18, color: NeumorphicPalette.textSecondary),
-        ],
-      ),
-    );
-  }
-
   Widget _metaCell(String label, String value) {
-    return NeumorphicBox(
+    return DarkCard(
       flat: true,
       borderRadius: 12,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 8, fontWeight: FontWeight.w800)),
+          Text(label, style: const TextStyle(color: BPColors.textSecondary, fontSize: 8, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
-          Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: NeumorphicPalette.textPrimary)),
+          Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: BPColors.textPrimary)),
         ],
       ),
     );
@@ -434,8 +386,8 @@ class _ProfileCapsuleVideoState extends State<_ProfileCapsuleVideo> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
-                BoxShadow(color: NeumorphicPalette.shadowDark.withOpacity(0.7), offset: const Offset(6, 6), blurRadius: 14),
-                const BoxShadow(color: Colors.white, offset: Offset(-6, -6), blurRadius: 14),
+                BoxShadow(color: Colors.black.withOpacity(0.7), offset: const Offset(6, 6), blurRadius: 14),
+                BoxShadow(color: BPColors.yellow.withOpacity(0.18), offset: Offset(-6, -6), blurRadius: 14),
               ],
             ),
             child: AspectRatio(
@@ -443,7 +395,7 @@ class _ProfileCapsuleVideoState extends State<_ProfileCapsuleVideo> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (_ready) VideoPlayer(_controller) else Container(color: NeumorphicPalette.shadowDark.withOpacity(0.2)),
+                  if (_ready) VideoPlayer(_controller) else Container(color: BPColors.border.withOpacity(0.2)),
                   Positioned(
                     right: 10,
                     bottom: 10,
@@ -469,7 +421,7 @@ class _ProfileCapsuleVideoState extends State<_ProfileCapsuleVideo> {
         const SizedBox(height: 6),
         const Text(
           'AI-generated concept visualization — does not depict the current working prototype.',
-          style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10),
+          style: TextStyle(color: BPColors.textSecondary, fontSize: 10),
         ),
       ],
     );

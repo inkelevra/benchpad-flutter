@@ -7,7 +7,6 @@ import 'devices_screen.dart';
 import 'interactions_screen.dart';
 import 'backup_screen.dart';
 import 'bench_engineering_screen.dart';
-import 'environment_screen.dart';
 import 'network_control_screen.dart';
 
 /// Engineering Tools — device receiver management, ported from
@@ -26,15 +25,12 @@ class EngineeringToolsScreen extends StatefulWidget {
 class _EngineeringToolsScreenState extends State<EngineeringToolsScreen> {
   final _api = BenchpadApi();
   final _deviceIdController = TextEditingController(text: 'BP-AMS-001');
-  final _displayNameController = TextEditingController(text: 'BenchPad Amsterdam Prototype');
   final _controllerController = TextEditingController(text: 'ESP32-S3 + A7670E');
   final _resolutionController = TextEditingController(text: '1600 × 1200');
-  String _onboardingMode = 'VIRTUAL';
 
   Map<String, dynamic>? _receiver;
   Map<String, dynamic>? _heartbeat;
   String _receiverMode = 'VIRTUAL';
-  String _claimStatus = 'Ready.';
   String _simulationStatus = 'Applies to the latest publish job.';
 
   @override
@@ -47,7 +43,6 @@ class _EngineeringToolsScreenState extends State<EngineeringToolsScreen> {
   void dispose() {
     _api.dispose();
     _deviceIdController.dispose();
-    _displayNameController.dispose();
     _controllerController.dispose();
     _resolutionController.dispose();
     super.dispose();
@@ -77,23 +72,6 @@ class _EngineeringToolsScreenState extends State<EngineeringToolsScreen> {
       _load();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
-    }
-  }
-
-  Future<void> _claim() async {
-    setState(() => _claimStatus = 'Claiming device…');
-    try {
-      final result = await _api.claimDevice(
-        deviceId: _deviceIdController.text.trim(),
-        displayName: _displayNameController.text.trim(),
-        controllerModel: _controllerController.text.trim(),
-        displayResolution: _resolutionController.text.trim(),
-        receiverMode: _onboardingMode,
-      );
-      setState(() => _claimStatus = '${result['message']} ✓ · ${(result['device'] as Map)['deviceId']} · ${(result['device'] as Map)['receiverMode']}');
-      _load();
-    } catch (e) {
-      setState(() => _claimStatus = e.toString());
     }
   }
 
@@ -161,7 +139,6 @@ class _EngineeringToolsScreenState extends State<EngineeringToolsScreen> {
                     OutlinedButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ContentModerationScreen())), child: const Text('MODERATION')),
                     OutlinedButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DevicesScreen())), child: const Text('DEVICES')),
                     OutlinedButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BenchEngineeringScreen())), child: const Text('THE BENCH')),
-                    OutlinedButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EnvironmentScreen())), child: const Text('ENVIRONMENT')),
                     OutlinedButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InteractionsScreen())), child: const Text('NFC / QR')),
                     OutlinedButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackupScreen())), child: const Text('BACKUP')),
                   ],
@@ -213,35 +190,6 @@ class _EngineeringToolsScreenState extends State<EngineeringToolsScreen> {
                 _row('Battery', _heartbeat?['batteryPercent'] != null ? '${_heartbeat!['batteryPercent']}%' : '—'),
                 _row('Network', '${_heartbeat?['networkStatus'] ?? '—'}'),
                 _row('Signal', _heartbeat?['signalDbm'] != null ? '${_heartbeat!['signalDbm']} dBm' : '—'),
-              ],
-            ),
-            _sectionCard(
-              title: 'Claim Device',
-              subtitle: 'Prepare a device before physical receiver activation.',
-              children: [
-                TextField(controller: _deviceIdController, decoration: const InputDecoration(labelText: 'Device ID')),
-                const SizedBox(height: 8),
-                TextField(controller: _displayNameController, decoration: const InputDecoration(labelText: 'Display name')),
-                const SizedBox(height: 8),
-                TextField(controller: _controllerController, decoration: const InputDecoration(labelText: 'Controller')),
-                const SizedBox(height: 8),
-                TextField(controller: _resolutionController, decoration: const InputDecoration(labelText: 'Display resolution')),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  style: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 14),
-                  dropdownColor: NeumorphicPalette.background,
-                  value: _onboardingMode,
-                  decoration: const InputDecoration(labelText: 'Receiver mode'),
-                  items: const [
-                    DropdownMenuItem(value: 'VIRTUAL', child: Text('VIRTUAL')),
-                    DropdownMenuItem(value: 'PHYSICAL', child: Text('PHYSICAL')),
-                  ],
-                  onChanged: (v) => setState(() => _onboardingMode = v ?? 'VIRTUAL'),
-                ),
-                const SizedBox(height: 10),
-                ElevatedButton(onPressed: _claim, child: const Text('REGISTER / CLAIM DEVICE')),
-                const SizedBox(height: 8),
-                Text(_claimStatus, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11)),
               ],
             ),
             _sectionCard(

@@ -94,4 +94,91 @@ class AppTheme {
       ),
     );
   }
+
+  // Light palette — matches the light neumorphic colors already used
+  // directly (as NeumorphicPalette) by most individual screens, so a
+  // Material widget that DOES read this app-wide theme stays visually
+  // consistent with screens that don't yet.
+  static const Color lightBackground = Color(0xFFE6E7EE);
+  static const Color lightSurface = Color(0xFFFFFFFF);
+  static const Color lightSurfaceElevated = Color(0xFFF1F2F7);
+  static const Color lightTextPrimary = Color(0xFF31344B);
+  static const Color lightTextSecondary = Color(0xFF66799E);
+
+  static ThemeData get light {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: lightBackground,
+      colorScheme: const ColorScheme.light(
+        primary: accent,
+        secondary: accent,
+        surface: lightSurface,
+        error: danger,
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: lightBackground,
+        foregroundColor: lightTextPrimary,
+        elevation: 0,
+        centerTitle: false,
+      ),
+      textTheme: const TextTheme(
+        headlineSmall: TextStyle(
+          color: lightTextPrimary,
+          fontWeight: FontWeight.w700,
+          fontSize: 22,
+        ),
+        titleMedium: TextStyle(
+          color: lightTextPrimary,
+          fontWeight: FontWeight.w600,
+          fontSize: 16,
+        ),
+        bodyMedium: TextStyle(
+          color: lightTextSecondary,
+          fontSize: 14,
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: accent,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: const Color(0xFFD8D8DC),
+          disabledForegroundColor: const Color(0xFF9A9AA0),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          disabledForegroundColor: const Color(0xFF9A9AA0),
+          foregroundColor: lightTextPrimary,
+          side: const BorderSide(color: Color(0xFFD0D2DC)),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: lightSurface,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: lightSurfaceElevated,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+    );
+  }
 }

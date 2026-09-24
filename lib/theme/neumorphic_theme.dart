@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
+import 'package:provider/provider.dart';
+import '../services/haptic_settings.dart';
 
 /// Light neumorphic ("soft UI") palette and shadow values, ported from
 /// Themesberg's open-source neumorphism-ui-bootstrap kit
@@ -125,7 +127,9 @@ class _NeumorphicBoxState extends State<NeumorphicBox> {
       box = GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapDown: (_) {
-          HapticFeedback.vibrate();
+          if (context.read<HapticSettings>().enabled) {
+            HapticFeedback.vibrate();
+          }
           _setPressed(true);
         },
         onTapUp: (_) => _setPressed(false),

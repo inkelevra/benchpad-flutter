@@ -1,14 +1,20 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/capsule_profile.dart';
 import '../services/benchpad_api.dart';
+import '../services/capsule_store.dart';
 import '../services/geosphere.dart';
-import '../theme/neumorphic_theme.dart';
+import '../theme/benchpad_dark_theme.dart';
 import '../widgets/home_back_leading.dart';
-/// Memory Sphere — interactive 3D geosphere of 492 hexagon/pentagon
+import 'capsule_creator_screen.dart';
+import 'broadcast_calendar_screen.dart';
+import 'profile_screen.dart';
+/// Time Capsule 2 — interactive 3D geosphere of 492 hexagon/pentagon
 /// capsule tiles, ported from benchpad-memory-orbit.html's canvas-based
 /// Living Sphere.
 ///
@@ -45,6 +51,7 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
 
   int? _selectedIndex;
   String _statusFilter = 'all';
+  bool _isOwner = false;
 
   late final AnimationController _spinController;
 
@@ -89,6 +96,9 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
       ..repeat();
     _loadProfiles();
     _loadHistory();
+    _api.getOwnerStatus().then((owner) {
+      if (mounted) setState(() => _isOwner = owner);
+    });
   }
 
   @override
@@ -229,10 +239,10 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
   Widget build(BuildContext context) {
     return Theme(
       data: Theme.of(context).copyWith(
-        scaffoldBackgroundColor: NeumorphicPalette.background,
+        scaffoldBackgroundColor: BPColors.bg,
         appBarTheme: const AppBarTheme(
-          backgroundColor: NeumorphicPalette.background,
-          foregroundColor: NeumorphicPalette.textPrimary,
+          backgroundColor: BPColors.bg,
+          foregroundColor: BPColors.textPrimary,
           elevation: 0,
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
@@ -243,8 +253,13 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
           leading: Builder(builder: backLeading),
           leadingWidth: 64,
           centerTitle: true,
-          title: const Text('Memory Sphere'),
+          title: const Text('Time Capsule 2'),
           actions: [
+            IconButton(
+              tooltip: 'My Capsules',
+              icon: const Icon(Icons.person_outline),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen())),
+            ),
             IconButton(
               tooltip: _spinning ? 'Pause rotation' : 'Resume rotation',
               icon: Icon(_spinning ? Icons.pause : Icons.play_arrow),
@@ -253,9 +268,9 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
           ],
         ),
         body: _loading
-            ? const Center(child: CircularProgressIndicator(color: NeumorphicPalette.accent))
+            ? const Center(child: CircularProgressIndicator(color: BPColors.yellow))
             : _error != null
-                ? Center(child: Text(_error!, style: const TextStyle(color: NeumorphicPalette.danger)))
+                ? Center(child: Text(_error!, style: const TextStyle(color: BPColors.danger)))
                 : Column(
                     children: [
                       _buildStatsBar(),
@@ -290,13 +305,13 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
           height: 48,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: NeumorphicPalette.background,
+            color: BPColors.card,
             boxShadow: [
-              BoxShadow(color: NeumorphicPalette.shadowDark.withOpacity(0.55), offset: const Offset(3, 3), blurRadius: 6),
-              const BoxShadow(color: Colors.white, offset: Offset(-3, -3), blurRadius: 6),
+              BoxShadow(color: Colors.black.withOpacity(0.55), offset: const Offset(3, 3), blurRadius: 6),
+              BoxShadow(color: BPColors.yellow.withOpacity(0.18), offset: Offset(-3, -3), blurRadius: 6),
             ],
           ),
-          child: Icon(icon, size: 20, color: onTap == null ? NeumorphicPalette.textSecondary.withOpacity(0.4) : NeumorphicPalette.accent),
+          child: Icon(icon, size: 20, color: onTap == null ? BPColors.textSecondary.withOpacity(0.4) : BPColors.yellow),
         ),
       ),
     );
@@ -311,11 +326,11 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
         margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
         padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
-          color: NeumorphicPalette.background,
+          color: BPColors.card,
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
-            BoxShadow(color: NeumorphicPalette.shadowDark.withOpacity(0.6), offset: const Offset(3, 3), blurRadius: 6),
-            const BoxShadow(color: Colors.white, offset: Offset(-3, -3), blurRadius: 6),
+            BoxShadow(color: Colors.black.withOpacity(0.6), offset: const Offset(3, 3), blurRadius: 6),
+            BoxShadow(color: BPColors.yellow.withOpacity(0.18), offset: Offset(-3, -3), blurRadius: 6),
           ],
         ),
         child: Row(
@@ -331,9 +346,9 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
     return Expanded(
       child: Column(
         children: [
-          Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary)),
+          Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: BPColors.textPrimary)),
           const SizedBox(height: 2),
-          Text(label, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
+          Text(label, style: const TextStyle(color: BPColors.textSecondary, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
         ],
       ),
     );
@@ -345,10 +360,10 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
       decoration: BoxDecoration(
         gradient: const RadialGradient(center: Alignment(-0.3, -0.3), radius: 1.3, colors: [Color(0xFF1A1F3A), Color(0xFF05060F)]),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: NeumorphicPalette.accent.withOpacity(0.2)),
+        border: Border.all(color: BPColors.yellow.withOpacity(0.2)),
         boxShadow: [
-          BoxShadow(color: NeumorphicPalette.shadowDark.withOpacity(0.6), offset: const Offset(4, 4), blurRadius: 10),
-          const BoxShadow(color: Colors.white, offset: Offset(-4, -4), blurRadius: 10),
+          BoxShadow(color: Colors.black.withOpacity(0.6), offset: const Offset(4, 4), blurRadius: 10),
+          BoxShadow(color: BPColors.yellow.withOpacity(0.18), offset: Offset(-4, -4), blurRadius: 10),
         ],
       ),
       clipBehavior: Clip.antiAlias,
@@ -390,9 +405,9 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
 
   void _handleTap(Offset local, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) * 0.38 * _scale;
+    final radius = math.min(size.width, size.height) * 0.46 * _scale;
     CapsuleProfile? closest;
-    double closestDist = 28;
+    double closestDist = 30;
     int? closestGlobalIndex;
 
     final visible = _visibleProfiles;
@@ -414,29 +429,57 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
     }
   }
 
+  /// Opens an empty position's reservation flow (mirrors Time Capsule 1's
+  /// _openCell) — claiming here works the same way as Vault: fill in
+  /// the form, get an access key back. To instead hand a *specific*
+  /// position to a specific person, use "Generate reservation code" on
+  /// that position (owner-only) — that pre-creates the reservation and
+  /// issues the key up front, before anyone fills anything in.
+  Future<void> _openPosition(CapsuleProfile p) async {
+    final ownerKey = await CapsuleStore.findKey('orbit', 'orb', p.privateNumber);
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => CapsuleCreatorScreen(type: 'orb', number: p.privateNumber, sphere: 'orbit', ownerKey: ownerKey)),
+    );
+    if (result == true) _loadProfiles();
+  }
+
+  /// Trims a possibly-full ISO datetime down to just the date part
+  /// ("2029-06-15T00:00:00.000Z" -> "2029-06-15") — the raw string was
+  /// long enough to wrap the card's third line onto a second line,
+  /// making the whole card visibly taller than Time Capsule 1's.
+  String _shortDate(String iso) {
+    final t = iso.indexOf('T');
+    return t > 0 ? iso.substring(0, t) : iso;
+  }
+
   Widget _buildSelectedCard() {
-    if (_selectedIndex == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Text(
-          'Tap a point on the sphere to open a capsule.',
-          style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12),
-          textAlign: TextAlign.center,
-        ),
-      );
-    }
-    final p = _profiles[_selectedIndex!];
-    final color = _statusColors[p.status] ?? NeumorphicPalette.accent;
-    final isEmpty = p.status == 'empty';
+    // Always the full card shape/size, selected or not (matches Hex
+    // Grid's pattern) — a narrower text-only placeholder here made the
+    // card visibly narrower whenever nothing was auto-selected yet.
+    final p = _selectedIndex != null && _selectedIndex! < _profiles.length ? _profiles[_selectedIndex!] : null;
+    final isEmptyPosition = p != null && p.status == 'empty';
+    // Both "empty" (never touched) and "locked" (reserved, still being
+    // filled in — not sealed yet) need to reopen the actual form so the
+    // person can finish it. Only "sealed"/"open" are read-only and show
+    // the identity sheet instead. Vault Sphere's equivalent tap handler
+    // already does this; this one didn't, so a locked-but-unsealed
+    // position here had no way back into its own photo/message step.
+    final canOpenForm = p != null && (p.status == 'empty' || p.status == 'locked');
+    final color = p != null ? (_statusColors[p.status] ?? BPColors.yellow) : BPColors.textSecondary;
     return GestureDetector(
-      onTap: isEmpty ? null : () => _showIdentitySheet(p),
+      onTap: p == null ? null : (canOpenForm ? () => _openPosition(p) : () => _showIdentitySheet(p)),
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: NeumorphicPalette.background,
+          color: BPColors.card,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: color.withOpacity(0.4)),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.5), offset: const Offset(3, 3), blurRadius: 6),
+            BoxShadow(color: BPColors.yellow.withOpacity(0.18), offset: Offset(-3, -3), blurRadius: 6),
+          ],
         ),
         child: Row(
           children: [
@@ -445,39 +488,154 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
               height: 48,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isEmpty ? NeumorphicPalette.background : HSLColor.fromAHSL(1, p.avatarHue, 0.6, 0.4).toColor(),
-                border: isEmpty ? Border.all(color: NeumorphicPalette.shadowDark) : null,
+                color: p == null || isEmptyPosition ? BPColors.bg : HSLColor.fromAHSL(1, p.avatarHue, 0.6, 0.4).toColor(),
+                border: p == null || isEmptyPosition ? Border.all(color: BPColors.border) : null,
               ),
               alignment: Alignment.center,
-              child: isEmpty
-                  ? const Icon(Icons.person_outline, size: 20, color: NeumorphicPalette.textSecondary)
-                  : Text(p.initials, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+              child: p == null
+                  ? const Icon(Icons.touch_app_outlined, size: 20, color: BPColors.textSecondary)
+                  : isEmptyPosition
+                      ? const Icon(Icons.person_outline, size: 20, color: BPColors.textSecondary)
+                      : Text(p.initials, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: isEmpty
-                    ? [
-                        Text('Position #${p.privateNumber}', style: const TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 2),
-                        const Text('Reserved', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: NeumorphicPalette.textPrimary)),
-                        const SizedBox(height: 2),
-                        const Text('Not yet claimed', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11)),
+                children: p == null
+                    ? const [
+                        Text('NO POSITION SELECTED', style: TextStyle(color: BPColors.textSecondary, fontSize: 10, fontWeight: FontWeight.w800)),
+                        SizedBox(height: 2),
+                        Text('Tap a point to open it', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: BPColors.textSecondary)),
                       ]
-                    : [
-                        Text('${p.flag} ${p.country}', style: const TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 2),
-                        Text(p.name.isEmpty ? 'Private' : p.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: NeumorphicPalette.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
-                        const SizedBox(height: 2),
-                        Text(
-                          p.status == 'open' ? 'Opened ${p.openingDate}' : 'Opens ${p.openingDate}',
-                          style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11),
-                        ),
-                      ],
+                    : isEmptyPosition
+                        ? [
+                            Text('Position #${p.privateNumber}', style: const TextStyle(color: BPColors.yellow, fontSize: 10, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 2),
+                            const Text('Reserved', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: BPColors.textPrimary)),
+                            const SizedBox(height: 2),
+                            const Text('Not yet claimed', style: TextStyle(color: BPColors.textSecondary, fontSize: 11)),
+                          ]
+                        : [
+                            Text('${p.flag} ${p.country}', style: const TextStyle(color: BPColors.yellow, fontSize: 10, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 2),
+                            Text(p.name.isEmpty ? 'Private' : p.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: BPColors.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            const SizedBox(height: 2),
+                            Text(
+                              p.status == 'open' ? 'Opened ${_shortDate(p.openingDate)}' : 'Opens ${_shortDate(p.openingDate)}',
+                              style: const TextStyle(color: BPColors.textSecondary, fontSize: 11),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
               ),
             ),
-            if (!isEmpty) Icon(Icons.chevron_right, color: color),
+            if (p == null)
+              const SizedBox.shrink()
+            else if (!isEmptyPosition)
+              Icon(Icons.chevron_right, color: color)
+            else if (_isOwner)
+              IconButton(
+                tooltip: 'Generate reservation code',
+                icon: const Icon(Icons.qr_code, color: BPColors.yellow),
+                iconSize: 20,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () => _issueReservation(p),
+              )
+            else
+              const Icon(Icons.chevron_right, color: BPColors.textSecondary),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Owner-only: pre-reserves this specific empty position and returns
+  /// an access key up front, before anyone fills anything in — for
+  /// handing a *specific* position to a *specific* person (as opposed
+  /// to the open self-serve claim flow, which anyone reaches by
+  /// tapping an empty position and hands out a random key only once
+  /// they've already filled in the form).
+  Future<void> _issueReservation(CapsuleProfile p) async {
+    try {
+      final result = await _api.saveCapsule(
+        type: 'orb',
+        number: p.privateNumber,
+        sphere: 'orbit',
+        ownerName: '',
+        ownerCountry: '',
+        message: '',
+        openingDateIso: DateTime.now().add(const Duration(days: 365 * 3)).toIso8601String(),
+        visibility: 'public',
+      );
+      final issuedKey = result['issuedAccessKey'] as String?;
+      if (!mounted) return;
+      if (issuedKey == null || issuedKey.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This position already has a reservation code issued.')));
+        return;
+      }
+      _loadProfiles();
+      _showReservationCodeSheet(p, issuedKey);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not generate a code: $e')));
+    }
+  }
+
+  void _showReservationCodeSheet(CapsuleProfile p, String code) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: BPColors.bg,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Text('RESERVATION CODE', style: TextStyle(color: BPColors.yellow, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+            const SizedBox(height: 6),
+            Text('Position #${p.privateNumber}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: BPColors.textPrimary)),
+            const SizedBox(height: 4),
+            const Text(
+              'Give this to one specific person. It lets them claim exactly this position — nobody else can use it once they do.',
+              style: TextStyle(color: BPColors.textSecondary, fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+              child: QrImageView(data: code, size: 180, backgroundColor: Colors.white),
+            ),
+            const SizedBox(height: 16),
+            SelectableText(code, style: const TextStyle(fontFamily: 'monospace', fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: 1, color: BPColors.textPrimary)),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(foregroundColor: BPColors.textPrimary, side: const BorderSide(color: BPColors.yellow)),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: code));
+                      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Code copied.')));
+                    },
+                    icon: const Icon(Icons.copy, size: 16),
+                    label: const Text('COPY'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(foregroundColor: BPColors.textPrimary, side: const BorderSide(color: BPColors.yellow)),
+                    onPressed: () => Share.share('Your BenchPad World Time Capsule 2 position #${p.privateNumber} — claim it with this code in the app under "My Capsule": $code'),
+                    icon: const Icon(Icons.share, size: 16),
+                    label: const Text('SHARE'),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -505,6 +663,8 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
   }
 
   void _showCountrySearchSheet() {
+    final controller = TextEditingController();
+    List<CapsuleProfile> results = [];
     final countries = _profiles.map((p) => p.country).where((c) => c.isNotEmpty).toSet().toList()..sort();
     final countryCounts = <String, int>{};
     for (final p in _profiles) {
@@ -517,65 +677,99 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: NeumorphicPalette.background,
+      backgroundColor: BPColors.bg,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.75,
-        minChildSize: 0.4,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (ctx, scrollController) => ListView(
-          controller: scrollController,
-          padding: const EdgeInsets.all(20),
-          children: [
-            const Text('COUNTRY DISCOVERY', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
-            const SizedBox(height: 6),
-            const Text('Find people around the world', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 16),
-            const Text('POPULAR COUNTRIES', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
-            const SizedBox(height: 8),
-            if (popular.isEmpty)
-              const Text('No public capsules yet.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12))
-            else
-              Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: popular.map((c) {
-                final flag = _profiles.firstWhere((p) => p.country == c).flag;
-                return ActionChip(
-                  backgroundColor: NeumorphicPalette.background,
-                  label: Text('$flag $c (${countryCounts[c]})', style: const TextStyle(fontSize: 11, color: NeumorphicPalette.textPrimary)),
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    final first = _profiles.firstWhere((p) => p.country == c);
-                    _flyTo(first.index);
-                  },
-                );
-              }).toList(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          void runSearch(String query) {
+            final q = query.trim().toLowerCase();
+            setSheetState(() {
+              results = q.isEmpty
+                  ? []
+                  : _profiles.where((p) {
+                      return p.status != 'empty' &&
+                          (p.name.toLowerCase().contains(q) ||
+                              p.country.toLowerCase().contains(q) ||
+                              p.privateNumber.toString() == q);
+                    }).toList();
+            });
+          }
+
+          return DraggableScrollableSheet(
+            initialChildSize: 0.75,
+            minChildSize: 0.4,
+            maxChildSize: 0.95,
+            expand: false,
+            builder: (ctx, scrollController) => ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.all(20),
+              children: [
+                const Text('SEARCH', style: TextStyle(color: BPColors.yellow, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                const SizedBox(height: 6),
+                const Text('Find a person', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 16),
+                TextField(controller: controller, autofocus: true, onChanged: runSearch, decoration: const InputDecoration(hintText: 'Name, country, or position number')),
+                const SizedBox(height: 16),
+                if (controller.text.trim().isEmpty) ...[
+                  const Text('POPULAR COUNTRIES', style: TextStyle(color: BPColors.textSecondary, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                  const SizedBox(height: 8),
+                  if (popular.isEmpty)
+                    const Text('No public capsules yet.', style: TextStyle(color: BPColors.textSecondary, fontSize: 12))
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: popular.map((c) {
+                        final flag = _profiles.firstWhere((p) => p.country == c).flag;
+                        return ActionChip(
+                          backgroundColor: BPColors.card,
+                          label: Text('$flag $c (${countryCounts[c]})', style: const TextStyle(fontSize: 11, color: BPColors.textPrimary)),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            final first = _profiles.firstWhere((p) => p.country == c);
+                            _flyTo(first.index);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  const SizedBox(height: 20),
+                  const Text('ALL COUNTRIES', style: TextStyle(color: BPColors.textSecondary, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                  const SizedBox(height: 8),
+                  if (countries.isEmpty)
+                    const Text('No public capsules yet — check back once more capsules are opened.', style: TextStyle(color: BPColors.textSecondary, fontSize: 12))
+                  else
+                    ...countries.map((c) {
+                      final flag = _profiles.firstWhere((p) => p.country == c).flag;
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Text(flag, style: const TextStyle(fontSize: 20, color: BPColors.textPrimary)),
+                        title: Text(c, style: const TextStyle(fontSize: 13, color: BPColors.textPrimary)),
+                        trailing: Text('${countryCounts[c]}', style: const TextStyle(color: BPColors.textSecondary, fontSize: 12)),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          final first = _profiles.firstWhere((p) => p.country == c);
+                          _flyTo(first.index);
+                        },
+                      );
+                    }),
+                ] else if (results.isEmpty)
+                  const Text('No matching capsules.', style: TextStyle(color: BPColors.textSecondary, fontSize: 12))
+                else
+                  ...results.map((p) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Text(p.flag, style: const TextStyle(fontSize: 20)),
+                        title: Text(p.name.isEmpty ? 'Private' : p.name, style: const TextStyle(fontSize: 13, color: BPColors.textPrimary)),
+                        subtitle: Text('${p.country} · #${p.privateNumber}', style: const TextStyle(color: BPColors.textSecondary, fontSize: 11)),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _flyTo(p.index);
+                        },
+                      )),
+              ],
             ),
-            const SizedBox(height: 20),
-            const Text('ALL COUNTRIES', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
-            const SizedBox(height: 8),
-            if (countries.isEmpty)
-              const Text('No public capsules yet — check back once more capsules are opened.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12))
-            else
-              ...countries.map((c) {
-              final flag = _profiles.firstWhere((p) => p.country == c).flag;
-              return ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Text(flag, style: const TextStyle(fontSize: 20, color: NeumorphicPalette.textPrimary)),
-                title: Text(c, style: const TextStyle(fontSize: 13, color: NeumorphicPalette.textPrimary)),
-                trailing: Text('${countryCounts[c]}', style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  final first = _profiles.firstWhere((p) => p.country == c);
-                  _flyTo(first.index);
-                },
-              );
-            }),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -583,7 +777,7 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
   void _showDiscoverySheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: NeumorphicPalette.background,
+      backgroundColor: BPColors.bg,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => DraggableScrollableSheet(
@@ -595,7 +789,7 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
           controller: scrollController,
           padding: const EdgeInsets.all(20),
           children: [
-            const Text('DISCOVERY', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+            const Text('DISCOVERY', style: TextStyle(color: BPColors.yellow, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
             const SizedBox(height: 6),
             const Text('Explore a living digital world', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
             const SizedBox(height: 16),
@@ -650,13 +844,13 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(14)),
+          decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(14)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: NeumorphicPalette.textPrimary)),
+              Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: BPColors.textPrimary)),
               const SizedBox(height: 3),
-              Text(subtitle, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11)),
+              Text(subtitle, style: const TextStyle(color: BPColors.textSecondary, fontSize: 11)),
             ],
           ),
         ),
@@ -667,7 +861,7 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
   void _showHistorySheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: NeumorphicPalette.background,
+      backgroundColor: BPColors.bg,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => Padding(
         padding: const EdgeInsets.all(20),
@@ -675,12 +869,12 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('RECENTLY VIEWED', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+            const Text('RECENTLY VIEWED', style: TextStyle(color: BPColors.yellow, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
             const SizedBox(height: 12),
             if (_recentlyViewed.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
-                child: Text('Open an Identity Card to build your recent history.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
+                child: Text('Open an Identity Card to build your recent history.', style: TextStyle(color: BPColors.textSecondary, fontSize: 12)),
               )
             else
               ..._recentlyViewed.map((i) {
@@ -689,10 +883,10 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
                   contentPadding: EdgeInsets.zero,
                   leading: CircleAvatar(
                     backgroundColor: HSLColor.fromAHSL(1, p.avatarHue, 0.6, 0.4).toColor(),
-                    child: Text(p.initials, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary)),
+                    child: Text(p.initials, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: BPColors.textPrimary)),
                   ),
-                  title: Text('${p.flag} ${p.name}', style: const TextStyle(fontSize: 13, color: NeumorphicPalette.textPrimary)),
-                  subtitle: Text('${p.country} · ${p.status.toUpperCase()}', style: const TextStyle(fontSize: 11, color: NeumorphicPalette.textPrimary)),
+                  title: Text('${p.flag} ${p.name}', style: const TextStyle(fontSize: 13, color: BPColors.textPrimary)),
+                  subtitle: Text('${p.country} · ${p.status.toUpperCase()}', style: const TextStyle(fontSize: 11, color: BPColors.textPrimary)),
                   trailing: const Icon(Icons.chevron_right, size: 18),
                   onTap: () {
                     Navigator.pop(ctx);
@@ -722,10 +916,10 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
 
   void _showIdentitySheet(CapsuleProfile p) {
     _rememberViewed(p.index);
-    final color = _statusColors[p.status] ?? NeumorphicPalette.accent;
+    final color = _statusColors[p.status] ?? BPColors.yellow;
     showModalBottomSheet(
       context: context,
-      backgroundColor: NeumorphicPalette.background,
+      backgroundColor: BPColors.bg,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => Padding(
         padding: const EdgeInsets.all(20),
@@ -736,7 +930,7 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
             Row(
               children: [
                 Expanded(
-                  child: Text('${p.flag} ${p.country}', style: const TextStyle(color: NeumorphicPalette.accent, fontSize: 11, fontWeight: FontWeight.w800)),
+                  child: Text('${p.flag} ${p.country}', style: const TextStyle(color: BPColors.yellow, fontSize: 11, fontWeight: FontWeight.w800)),
                 ),
                 IconButton(
                   visualDensity: VisualDensity.compact,
@@ -751,7 +945,7 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
               ],
             ),
             const SizedBox(height: 6),
-            Text(p.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary)),
+            Text(p.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: BPColors.textPrimary)),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -767,9 +961,9 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
               child: Text(p.status.toUpperCase(), style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w800)),
             ),
             const SizedBox(height: 16),
-            const Text('MESSAGE', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
+            const Text('MESSAGE', style: TextStyle(color: BPColors.textSecondary, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
             const SizedBox(height: 6),
-            Text('"${p.message}"', style: const TextStyle(fontSize: 14, height: 1.4, fontStyle: FontStyle.italic, color: NeumorphicPalette.textPrimary)),
+            Text('"${p.message}"', style: const TextStyle(fontSize: 14, height: 1.4, fontStyle: FontStyle.italic, color: BPColors.textPrimary)),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -777,6 +971,22 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
                 const SizedBox(width: 8),
                 Expanded(child: _factBlock('VISIBILITY', p.visibility)),
               ],
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(foregroundColor: BPColors.textPrimary, side: const BorderSide(color: BPColors.yellow)),
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => BroadcastCalendarScreen(
+                  sphere: 'orbit',
+                  capsuleType: 'orb',
+                  capsuleNumber: p.privateNumber,
+                  ownerName: p.name,
+                  ownerCountry: p.country,
+                  contentReady: p.message.isNotEmpty,
+                )));
+              },
+              child: const Text('SCHEDULE BROADCAST'),
             ),
           ],
         ),
@@ -788,13 +998,13 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(10)),
+        decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(10)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 8, fontWeight: FontWeight.w800)),
+            Text(label, style: const TextStyle(color: BPColors.textSecondary, fontSize: 8, fontWeight: FontWeight.w800)),
             const SizedBox(height: 2),
-            Text(value, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: NeumorphicPalette.textPrimary)),
+            Text(value, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: BPColors.textPrimary)),
           ],
         ),
       ),
@@ -815,13 +1025,13 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
   Widget _factBlock(String label, String value) {
     return Container(
       padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(10)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 8, fontWeight: FontWeight.w800)),
+          Text(label, style: const TextStyle(color: BPColors.textSecondary, fontSize: 8, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
-          Text(value.isEmpty ? '—' : value, style: const TextStyle(fontSize: 11, color: NeumorphicPalette.textPrimary)),
+          Text(value.isEmpty ? '—' : value, style: const TextStyle(fontSize: 11, color: BPColors.textPrimary)),
         ],
       ),
     );
@@ -833,7 +1043,7 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       child: Row(
         children: [
-          _legendButton('all', 'ALL', _profiles.length, NeumorphicPalette.accent),
+          _legendButton('all', 'ALL', _profiles.length, BPColors.yellow),
           const SizedBox(width: 6),
           _legendButton('empty', 'EMPTY', counts['empty']!, _statusColors['empty']!),
           const SizedBox(width: 6),
@@ -855,14 +1065,14 @@ class _MemorySphereScreenState extends State<MemorySphereScreen> with SingleTick
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            color: active ? color.withOpacity(0.15) : NeumorphicPalette.background,
+            color: active ? color.withOpacity(0.15) : BPColors.card,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: color, width: active ? 1.5 : 1),
           ),
           child: Column(
             children: [
-              Text('$count', style: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 13, fontWeight: FontWeight.w800)),
-              Text(label, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 7, fontWeight: FontWeight.w800)),
+              Text('$count', style: const TextStyle(color: BPColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w800)),
+              Text(label, style: const TextStyle(color: BPColors.textSecondary, fontSize: 7, fontWeight: FontWeight.w800)),
             ],
           ),
         ),
@@ -896,6 +1106,25 @@ _Vec3 _rotate(_Vec3 p, double rotX, double rotY) {
   return _Vec3(x1, y2, z2);
 }
 
+_Vec3 _cross(_Vec3 a, _Vec3 b) => _Vec3(
+      a.y * b.z - a.z * b.y,
+      a.z * b.x - a.x * b.z,
+      a.x * b.y - a.y * b.x,
+    );
+
+/// The two unit tangent directions ("east"/"north") of the sphere's
+/// surface at [normal] — used to glue a flat number onto a curved tile
+/// so it follows the tile's own skew/foreshortening as the sphere turns.
+/// Mirrors the same helper in vault_sphere_screen.dart.
+(_Vec3 east, _Vec3 north) _tangentBasis(_Vec3 normal) {
+  const worldUp = _Vec3(0, 1, 0);
+  var e = _cross(worldUp, normal);
+  final eLen = math.sqrt(e.x * e.x + e.y * e.y + e.z * e.z);
+  e = eLen < 1e-6 ? const _Vec3(1, 0, 0) : _Vec3(e.x / eLen, e.y / eLen, e.z / eLen);
+  final n = _cross(normal, e);
+  return (e, n);
+}
+
 class _SpherePainter extends CustomPainter {
   final List<CapsuleProfile> profiles;
   final double rotationX, rotationY, scale;
@@ -911,10 +1140,29 @@ class _SpherePainter extends CustomPainter {
     required this.statusColors,
   });
 
+  // Same cached-per-digit approach as Time Capsule 1's painter: text layout
+  // for a given number runs once, then every frame we just transform the
+  // cached painter into place — no per-frame layout during drag/rotation.
+  static final Map<int, TextPainter> _numberCache = {};
+
+  static TextPainter _numberPainter(int number) {
+    return _numberCache.putIfAbsent(number, () {
+      final tp = TextPainter(
+        text: TextSpan(
+          text: '$number',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 10),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      tp.layout();
+      return tp;
+    });
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) * 0.38 * scale;
+    final radius = math.min(size.width, size.height) * 0.46 * scale;
     final tiles = Geosphere.build(subdivisions: _geosphereSubdivisions);
 
     final profileByIndex = <int, CapsuleProfile>{for (final p in profiles) p.index % tiles.length: p};
@@ -944,14 +1192,30 @@ class _SpherePainter extends CustomPainter {
       final baseColor = profile != null ? (statusColors[profile.status] ?? Colors.grey) : const Color(0xFF2A3050);
       final isSelected = profile != null && profile.index == selectedIndex;
 
+      // Project corners to screen space first, then shrink each tile toward
+      // its own centroid so a visible gap appears between neighboring
+      // cells — matches Time Capsule 1's tile treatment.
+      final screenPoints = corners
+          .map((v) => Offset(center.dx + v.x * radius, center.dy + v.y * radius))
+          .toList();
+      final tileCenter = screenPoints.fold<Offset>(
+            Offset.zero,
+            (sum, p) => sum + p,
+          ) /
+          screenPoints.length.toDouble();
+
+      const _tileShrink = 0.86;
+      final shrunkPoints = screenPoints
+          .map((p) => tileCenter + (p - tileCenter) * _tileShrink)
+          .toList();
+
       final path = Path();
-      for (int i = 0; i < corners.length; i++) {
-        final v = corners[i];
-        final screen = Offset(center.dx + v.x * radius, center.dy + v.y * radius);
+      for (int i = 0; i < shrunkPoints.length; i++) {
+        final p = shrunkPoints[i];
         if (i == 0) {
-          path.moveTo(screen.dx, screen.dy);
+          path.moveTo(p.dx, p.dy);
         } else {
-          path.lineTo(screen.dx, screen.dy);
+          path.lineTo(p.dx, p.dy);
         }
       }
       path.close();
@@ -962,13 +1226,35 @@ class _SpherePainter extends CustomPainter {
           ..color = baseColor.withOpacity(profile != null ? (0.35 + depthFactor * 0.55) : (0.12 + depthFactor * 0.18))
           ..style = PaintingStyle.fill,
       );
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = Colors.black.withOpacity(0.25 * depthFactor)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.6,
-      );
+
+      // Neon-ish glow on occupied cells (matches Time Capsule 1's
+      // treatment) — no MaskFilter.blur (expensive to rasterize per
+      // tile every frame, especially at 500 tiles); a wider, more
+      // transparent solid stroke under a crisp one fakes the glow cheaply.
+      if (profile != null) {
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = baseColor.withOpacity(0.35 * depthFactor)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.6,
+        );
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = baseColor.withOpacity(0.9 * depthFactor + 0.1)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.1,
+        );
+      } else {
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = Colors.black.withOpacity(0.25 * depthFactor)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.6,
+        );
+      }
 
       if (isSelected) {
         canvas.drawPath(
@@ -978,6 +1264,33 @@ class _SpherePainter extends CustomPainter {
             ..style = PaintingStyle.stroke
             ..strokeWidth = 2.2,
         );
+      }
+
+      // Stamp the position number onto occupied capsules only — glued to
+      // the tile's actual curvature, same approach as Time Capsule 1. Empty
+      // positions stay bare to avoid cluttering the denser 492-tile sphere.
+      if (profile != null && depthFactor > 0.35) {
+        final normal = _Vec3(tile.center.x, tile.center.y, tile.center.z);
+        final (east, north) = _tangentBasis(normal);
+        final eastRotated = _rotate(east, rotationX, rotationY);
+        final northRotated = _rotate(north, rotationX, rotationY);
+
+        final avgTileRadius =
+            shrunkPoints.map((p) => (p - tileCenter).distance).reduce((a, b) => a + b) / shrunkPoints.length;
+        final halfSize = avgTileRadius * 0.40;
+
+        final tp = _numberPainter(profile.privateNumber);
+        canvas.save();
+        canvas.translate(tileCenter.dx, tileCenter.dy);
+        canvas.transform(Float64List.fromList([
+          eastRotated.x * halfSize, eastRotated.y * halfSize, 0, 0,
+          northRotated.x * halfSize, northRotated.y * halfSize, 0, 0,
+          0, 0, 1, 0,
+          0, 0, 0, 1,
+        ]));
+        canvas.scale(1 / (tp.width / 2), 1 / (tp.height / 2));
+        tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+        canvas.restore();
       }
     }
   }

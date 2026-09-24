@@ -1,20 +1,24 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/benchpad_api.dart';
-import '../theme/neumorphic_theme.dart';
+import '../services/capsule_store.dart';
+import '../theme/benchpad_dark_theme.dart';
+import 'advertise_screen.dart';
 
 /// Capsule Creator — multi-step capsule form, ported from
 /// capsule-creator.html. Includes the Avatar step (preset emoji grid or
 /// uploaded photo with zoom/X/Y crop sliders) — this is purely local
 /// preview decoration in the PWA too, never sent to the server.
 class CapsuleCreatorScreen extends StatefulWidget {
-  final String type; // "core" | "standard"
+  final String type; // "core" | "standard" (ignored server-side when sphere is 'orbit')
   final int number;
   final String? ownerKey; // when provided (via Capsule Access), pre-authorizes editing an existing capsule
+  final String sphere; // 'vault' (Time Capsule 1) | 'orbit' (Time Capsule 2 / Time Capsule 2)
 
-  const CapsuleCreatorScreen({super.key, required this.type, required this.number, this.ownerKey});
+  const CapsuleCreatorScreen({super.key, required this.type, required this.number, this.ownerKey, this.sphere = 'vault'});
 
   @override
   State<CapsuleCreatorScreen> createState() => _CapsuleCreatorScreenState();
@@ -24,8 +28,8 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
   final _api = BenchpadApi();
   final _picker = ImagePicker();
 
-  int _step = 0; // 0..6, matches the PWA's 7 content steps
-  static const _titles = ['Identity', 'Avatar', 'Message', 'Photograph', 'Opening rules', 'Preview', 'Complete'];
+  int _step = 0; // 0..5: Identity, Avatar, Compose, Opening rules, Preview, Complete
+  static const _titles = ['Identity', 'Avatar', 'Compose', 'Opening rules', 'Preview', 'Complete'];
 
   // Avatar — session-only presentational state (ported from
   // capsule-creator.html; the PWA itself never sends avatarData/
@@ -46,17 +50,23 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
   DateTime _openingDate = DateTime.now().add(const Duration(days: 365 * 3));
   TimeOfDay _openingTime = const TimeOfDay(hour: 12, minute: 0);
   String _visibility = 'public';
-  File? _photo;
+  Uint8List? _composedPhoto; // final flattened JPEG (photo + text baked in), produced by AdvertiseScreen's compose-only mode
+  Uint8List? _sourcePhotoBytes; // the un-composited photo, kept so re-opening Compose doesn't double-bake text
 
   bool _busy = false;
   String? _ownerKey;
   String? _existingImageData;
   bool _loadingExisting = true;
   bool _readOnly = false;
+  bool _justSealed = false;
 
-  String get _displayId => widget.type == 'core'
-      ? 'BP-CORE-${widget.number.toString().padLeft(2, '0')}'
-      : 'BP-TC-${widget.number.toString().padLeft(6, '0')}';
+  String get _displayId => widget.sphere == 'orbit'
+      ? 'BP-ORB-${widget.number.toString().padLeft(6, '0')}'
+      : widget.sphere == 'hex'
+          ? 'BP-HEX-${widget.number.toString().padLeft(6, '0')}'
+          : widget.type == 'core'
+              ? 'BP-CORE-${widget.number.toString().padLeft(2, '0')}'
+              : 'BP-TC-${widget.number.toString().padLeft(6, '0')}';
 
   @override
   void initState() {
@@ -67,7 +77,7 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
 
   Future<void> _loadExisting() async {
     try {
-      final cell = await _api.getCell(type: widget.type, number: widget.number);
+      final cell = await _api.getCell(type: widget.type, number: widget.number, sphere: widget.sphere);
       final status = (cell['status'] ?? 'empty') as String;
       if (status != 'empty') {
         _ownerController.text = (cell['ownerName'] ?? '') as String;
@@ -106,9 +116,24 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
     super.dispose();
   }
 
-  Future<void> _pickPhoto() async {
-    final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (picked != null) setState(() => _photo = File(picked.path));
+  Future<void> _processCompose() async {
+    final result = await Navigator.push<ComposeResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AdvertiseScreen(
+          composeOnly: true,
+          initialImageBytes: _sourcePhotoBytes,
+          initialMessage: _messageController.text,
+        ),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _composedPhoto = result.composedJpeg;
+        _sourcePhotoBytes = result.sourcePhotoBytes;
+        _messageController.text = result.message;
+      });
+    }
   }
 
   bool _validateStep() {
@@ -117,7 +142,7 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
       return false;
     }
     if (_step == 2 && _messageController.text.trim().isEmpty) {
-      _toast('Write a capsule message');
+      _toast('A capsule needs a written message to be sealed — add one (a photo alone isn\'t enough here)');
       return false;
     }
     return true;
@@ -133,9 +158,8 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
   }
 
   Future<String> _photoDataUrl() async {
-    if (_photo != null) {
-      final bytes = await _photo!.readAsBytes();
-      return 'data:image/jpeg;base64,${base64Encode(bytes)}';
+    if (_composedPhoto != null) {
+      return 'data:image/jpeg;base64,${base64Encode(_composedPhoto!)}';
     }
     return _existingImageData ?? '';
   }
@@ -146,6 +170,7 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
       final result = await _api.saveCapsule(
         type: widget.type,
         number: widget.number,
+        sphere: widget.sphere,
         accessKey: _ownerKey ?? '',
         ownerName: _ownerController.text.trim(),
         ownerCountry: _countryController.text.trim(),
@@ -158,10 +183,20 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
       if (issuedKey != null) _ownerKey = issuedKey;
 
       if (seal) {
-        await _api.sealCapsule(type: widget.type, number: widget.number, accessKey: _ownerKey ?? '');
+        await _api.sealCapsule(type: widget.type, number: widget.number, accessKey: _ownerKey ?? '', sphere: widget.sphere);
       }
 
-      setState(() { _busy = false; _step = 6; });
+      if (_ownerKey != null && _ownerKey!.isNotEmpty) {
+        await CapsuleStore.remember({
+          'accessKey': _ownerKey,
+          'sphere': widget.sphere,
+          'type': widget.type,
+          'number': widget.number,
+          'status': seal ? 'sealed' : 'locked',
+        });
+      }
+
+      setState(() { _busy = false; _step = 5; _justSealed = seal; });
     } catch (e) {
       setState(() => _busy = false);
       _toast(e.toString());
@@ -173,63 +208,71 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
     if (_loadingExisting) {
       return Theme(
       data: Theme.of(context).copyWith(
-        scaffoldBackgroundColor: NeumorphicPalette.background,
+        scaffoldBackgroundColor: BPColors.bg,
         appBarTheme: const AppBarTheme(
-          backgroundColor: NeumorphicPalette.background,
-          foregroundColor: NeumorphicPalette.textPrimary,
+          backgroundColor: BPColors.bg,
+          foregroundColor: BPColors.textPrimary,
           elevation: 0,
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
         ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(backgroundColor: BPColors.yellow, foregroundColor: BPColors.bg, disabledBackgroundColor: BPColors.border, disabledForegroundColor: BPColors.textSecondary),
+        ),
         outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(foregroundColor: NeumorphicPalette.textPrimary, disabledForegroundColor: NeumorphicPalette.textSecondary, side: const BorderSide(color: NeumorphicPalette.accent)),
+          style: OutlinedButton.styleFrom(foregroundColor: BPColors.textPrimary, disabledForegroundColor: BPColors.textSecondary, side: const BorderSide(color: BPColors.yellow)),
         ),
         textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(foregroundColor: NeumorphicPalette.accent),
+          style: TextButton.styleFrom(foregroundColor: BPColors.yellow),
         ),
+        textTheme: Theme.of(context).textTheme.apply(bodyColor: BPColors.textPrimary, displayColor: BPColors.textPrimary),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: NeumorphicPalette.background,
-          labelStyle: const TextStyle(color: NeumorphicPalette.textSecondary),
-          floatingLabelStyle: const TextStyle(color: NeumorphicPalette.accent),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.shadowDark)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.shadowDark)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.accent, width: 1.5)),
+          fillColor: BPColors.card,
+          labelStyle: const TextStyle(color: BPColors.textSecondary),
+          floatingLabelStyle: const TextStyle(color: BPColors.yellow),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.border)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.border)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.yellow, width: 1.5)),
         ),
       ),
       child: Scaffold(
-        appBar: AppBar(title: const Text('Vault Sphere · Capsule Creator')),
+        appBar: AppBar(title: Text(widget.sphere == 'orbit' ? 'Time Capsule 2 · Reserve a Position' : widget.sphere == 'hex' ? 'Time Capsule 3 · Reserve a Cell' : 'Time Capsule 1 · Reserve a Cell')),
         body: const Center(child: CircularProgressIndicator()),
       ));
     }
     return Theme(
       data: Theme.of(context).copyWith(
-        scaffoldBackgroundColor: NeumorphicPalette.background,
+        scaffoldBackgroundColor: BPColors.bg,
         appBarTheme: const AppBarTheme(
-          backgroundColor: NeumorphicPalette.background,
-          foregroundColor: NeumorphicPalette.textPrimary,
+          backgroundColor: BPColors.bg,
+          foregroundColor: BPColors.textPrimary,
           elevation: 0,
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
         ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(backgroundColor: BPColors.yellow, foregroundColor: BPColors.bg, disabledBackgroundColor: BPColors.border, disabledForegroundColor: BPColors.textSecondary),
+        ),
         outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(foregroundColor: NeumorphicPalette.textPrimary, disabledForegroundColor: NeumorphicPalette.textSecondary, side: const BorderSide(color: NeumorphicPalette.accent)),
+          style: OutlinedButton.styleFrom(foregroundColor: BPColors.textPrimary, disabledForegroundColor: BPColors.textSecondary, side: const BorderSide(color: BPColors.yellow)),
         ),
         textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(foregroundColor: NeumorphicPalette.accent),
+          style: TextButton.styleFrom(foregroundColor: BPColors.yellow),
         ),
+        textTheme: Theme.of(context).textTheme.apply(bodyColor: BPColors.textPrimary, displayColor: BPColors.textPrimary),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: NeumorphicPalette.background,
-          labelStyle: const TextStyle(color: NeumorphicPalette.textSecondary),
-          floatingLabelStyle: const TextStyle(color: NeumorphicPalette.accent),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.shadowDark)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.shadowDark)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.accent, width: 1.5)),
+          fillColor: BPColors.card,
+          labelStyle: const TextStyle(color: BPColors.textSecondary),
+          floatingLabelStyle: const TextStyle(color: BPColors.yellow),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.border)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.border)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.yellow, width: 1.5)),
         ),
       ),
       child: Scaffold(
-      appBar: AppBar(title: const Text('Vault Sphere · Capsule Creator')),
+      appBar: AppBar(title: Text(widget.sphere == 'orbit' ? 'Time Capsule 2 · Reserve a Position' : widget.sphere == 'hex' ? 'Time Capsule 3 · Reserve a Cell' : 'Time Capsule 1 · Reserve a Cell')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -240,15 +283,15 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: NeumorphicPalette.danger.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-                  child: const Text('This capsule is sealed and read-only.', style: TextStyle(color: NeumorphicPalette.danger, fontSize: 12)),
+                  decoration: BoxDecoration(color: BPColors.danger.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                  child: const Text('This capsule is sealed and read-only.', style: TextStyle(color: BPColors.danger, fontSize: 12)),
                 ),
-              if (_step < 6) ...[
+              if (_step < 5) ...[
                 Row(
                   children: [
-                    Text('STEP ${_step + 1} OF 6', style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10, fontWeight: FontWeight.w800)),
+                    Text('STEP ${_step + 1} OF 5', style: const TextStyle(color: BPColors.textSecondary, fontSize: 10, fontWeight: FontWeight.w800)),
                     const Spacer(),
-                    Text(_displayId, style: const TextStyle(color: NeumorphicPalette.accent, fontSize: 11, fontWeight: FontWeight.w800)),
+                    Text(_displayId, style: const TextStyle(color: BPColors.yellow, fontSize: 11, fontWeight: FontWeight.w800)),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -256,7 +299,7 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
                 const SizedBox(height: 6),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(value: (_step + 1) / 6, minHeight: 5, backgroundColor: NeumorphicPalette.background, color: NeumorphicPalette.accent),
+                  child: LinearProgressIndicator(value: (_step + 1) / 5, minHeight: 5, backgroundColor: BPColors.bg, color: BPColors.yellow),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -275,12 +318,10 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
       case 1:
         return _buildAvatarStep();
       case 2:
-        return _buildMessageStep();
+        return _buildComposeStep();
       case 3:
-        return _buildPhotoStep();
-      case 4:
         return _buildOpeningRulesStep();
-      case 5:
+      case 4:
         return _buildPreviewStep();
       default:
         return _buildCompleteStep();
@@ -290,7 +331,25 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
   Widget _buildIdentityStep() {
     return ListView(
       children: [
-        const Text('Your public name can be a real name or a pseudonym.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
+        Container(
+          padding: const EdgeInsets.all(12),
+          margin: const EdgeInsets.only(bottom: 16),
+          decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: BPColors.yellow.withOpacity(0.3))),
+          child: const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline, color: BPColors.yellow, size: 18),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'You\'re reserving this spot to publish a photo or message on the physical BenchPad display — on a date and time you choose. Six short steps, about 2 minutes.',
+                  style: TextStyle(color: BPColors.textSecondary, fontSize: 12, height: 1.35),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Text('Your public name can be a real name or a pseudonym.', style: TextStyle(color: BPColors.textSecondary, fontSize: 12)),
         const SizedBox(height: 16),
         TextField(controller: _ownerController, decoration: const InputDecoration(labelText: 'Name or pseudonym')),
         const SizedBox(height: 12),
@@ -305,7 +364,7 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
     return ListView(
       children: [
         const Text('Select a ready-made symbol or upload any appropriate image: yourself, a flower, a pet, an object or an illustration. A real face is not required.',
-            style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
+            style: TextStyle(color: BPColors.textSecondary, fontSize: 12)),
         const SizedBox(height: 16),
         Center(
           child: Container(
@@ -313,7 +372,7 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
             height: 130,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: NeumorphicPalette.accent.withOpacity(0.4), width: 2),
+              border: Border.all(color: BPColors.yellow.withOpacity(0.4), width: 2),
               gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF1D536A), Color(0xFF101B2B)]),
             ),
             clipBehavior: Clip.antiAlias,
@@ -350,9 +409,9 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
               onTap: () => setState(() { _avatarPreset = p[0]; _avatarSource = null; }),
               child: Container(
                 decoration: BoxDecoration(
-                  color: NeumorphicPalette.background,
+                  color: BPColors.card,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: active ? NeumorphicPalette.accent : Colors.transparent, width: 1.5),
+                  border: Border.all(color: active ? BPColors.yellow : Colors.transparent, width: 1.5),
                 ),
                 child: Center(child: Text(p[1], style: const TextStyle(fontSize: 22))),
               ),
@@ -377,7 +436,7 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
         ],
         const SizedBox(height: 12),
         const Text('The public avatar is cropped to a circle and, when this connects to real accounts later, will require moderation before public use.',
-            style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10)),
+            style: TextStyle(color: BPColors.textSecondary, fontSize: 10)),
         const SizedBox(height: 20),
         Row(
           children: [
@@ -413,25 +472,44 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
   Widget _sliderRow(String label, double value, double min, double max, ValueChanged<double> onChanged) {
     return Row(
       children: [
-        SizedBox(width: 90, child: Text(label, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 9, fontWeight: FontWeight.w800))),
+        SizedBox(width: 90, child: Text(label, style: const TextStyle(color: BPColors.textSecondary, fontSize: 9, fontWeight: FontWeight.w800))),
         Expanded(child: Slider(value: value, min: min, max: max, onChanged: onChanged)),
       ],
     );
   }
 
-  Widget _buildMessageStep() {
+  Widget _buildComposeStep() {
     return ListView(
       children: [
-        const Text('This text becomes the heart of the capsule and can be shown on E-Ink when it opens.',
-            style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _messageController,
-          maxLines: 8,
-          maxLength: 700,
-          decoration: const InputDecoration(hintText: 'Write something worth carrying into the future...'),
+        const Text(
+          'Process your photo and message just like a normal BenchPad post — same photo positioning, zoom and text styling as Post to BenchPad. A written message is required to seal the capsule; the photo is optional.',
+          style: TextStyle(color: BPColors.textSecondary, fontSize: 12),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
+        AspectRatio(
+          aspectRatio: 4 / 3,
+          child: Container(
+            decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(16)),
+            clipBehavior: Clip.antiAlias,
+            child: _composedPhoto != null
+                ? Image.memory(_composedPhoto!, fit: BoxFit.cover)
+                : (_existingImageData != null && _existingImageData!.contains(','))
+                    ? Image.memory(base64Decode(_existingImageData!.split(',').last), fit: BoxFit.cover)
+                    : _messageController.text.trim().isNotEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Center(child: Text('"${_messageController.text.trim()}"', textAlign: TextAlign.center, style: const TextStyle(color: BPColors.textPrimary, fontStyle: FontStyle.italic))),
+                          )
+                        : const Center(child: Icon(Icons.image_outlined, size: 40, color: BPColors.textSecondary)),
+          ),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: _processCompose,
+          icon: const Icon(Icons.tune),
+          label: Text(_composedPhoto != null || _messageController.text.trim().isNotEmpty ? 'Edit photo & message' : 'Process photo & message'),
+        ),
+        const SizedBox(height: 20),
         Row(
           children: [
             Expanded(child: OutlinedButton(onPressed: () => setState(() => _step = 1), child: const Text('BACK'))),
@@ -443,45 +521,16 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
     );
   }
 
-  Widget _buildPhotoStep() {
-    return ListView(
-      children: [
-        const Text('The photo is optional.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
-        const SizedBox(height: 16),
-        AspectRatio(
-          aspectRatio: 4 / 3,
-          child: Container(
-            decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(16)),
-            clipBehavior: Clip.antiAlias,
-            child: _photo != null
-                ? Image.file(_photo!, fit: BoxFit.cover)
-                : const Center(child: Icon(Icons.image_outlined, size: 40, color: NeumorphicPalette.textSecondary)),
-          ),
-        ),
-        const SizedBox(height: 10),
-        OutlinedButton.icon(onPressed: _pickPhoto, icon: const Icon(Icons.photo_library_outlined), label: const Text('Choose photo')),
-        const SizedBox(height: 20),
-        Row(
-          children: [
-            Expanded(child: OutlinedButton(onPressed: () => setState(() => _step = 2), child: const Text('BACK'))),
-            const SizedBox(width: 10),
-            Expanded(child: ElevatedButton(onPressed: () => setState(() => _step = 4), child: const Text('CONTINUE'))),
-          ],
-        ),
-      ],
-    );
-  }
-
   Widget _buildOpeningRulesStep() {
     return ListView(
       children: [
-        const Text('Choose when the capsule opens and whether visitors may see it.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
+        const Text('Choose when your message publishes to the physical display, and whether visitors may see it before then.', style: TextStyle(color: BPColors.textSecondary, fontSize: 12)),
         const SizedBox(height: 16),
         ListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('Opening date', style: TextStyle(color: NeumorphicPalette.textPrimary)),
-          subtitle: Text('${_openingDate.year}-${_openingDate.month.toString().padLeft(2, '0')}-${_openingDate.day.toString().padLeft(2, '0')}', style: const TextStyle(color: NeumorphicPalette.textSecondary)),
-          trailing: const Icon(Icons.calendar_today, size: 18, color: NeumorphicPalette.textSecondary),
+          title: const Text('Publish date', style: TextStyle(color: BPColors.textPrimary)),
+          subtitle: Text('${_openingDate.year}-${_openingDate.month.toString().padLeft(2, '0')}-${_openingDate.day.toString().padLeft(2, '0')}', style: const TextStyle(color: BPColors.textSecondary)),
+          trailing: const Icon(Icons.calendar_today, size: 18, color: BPColors.textSecondary),
           onTap: () async {
             final picked = await showDatePicker(
               context: context,
@@ -494,36 +543,38 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
         ),
         ListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('Opening time (your local time)', style: TextStyle(color: NeumorphicPalette.textPrimary)),
-          subtitle: Text(_openingTime.format(context), style: const TextStyle(color: NeumorphicPalette.textSecondary)),
-          trailing: const Icon(Icons.access_time, size: 18, color: NeumorphicPalette.textSecondary),
+          title: const Text('Publish time (your local time)', style: TextStyle(color: BPColors.textPrimary)),
+          subtitle: Text(_openingTime.format(context), style: const TextStyle(color: BPColors.textSecondary)),
+          trailing: const Icon(Icons.access_time, size: 18, color: BPColors.textSecondary),
           onTap: () async {
             final picked = await showTimePicker(context: context, initialTime: _openingTime);
             if (picked != null) setState(() => _openingTime = picked);
           },
         ),
         const SizedBox(height: 10),
-        const Text('VISIBILITY', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+        const Text('VISIBILITY', style: TextStyle(color: BPColors.textSecondary, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
         RadioListTile<String>(
           contentPadding: EdgeInsets.zero,
+          activeColor: BPColors.yellow,
           value: 'public',
           groupValue: _visibility,
           onChanged: (v) => setState(() => _visibility = v!),
-          title: const Text('Public on opening day', style: TextStyle(fontSize: 13)),
+          title: const Text('Public on publish day', style: TextStyle(fontSize: 13, color: BPColors.textPrimary)),
         ),
         RadioListTile<String>(
           contentPadding: EdgeInsets.zero,
+          activeColor: BPColors.yellow,
           value: 'private',
           groupValue: _visibility,
           onChanged: (v) => setState(() => _visibility = v!),
-          title: const Text('Private link only', style: TextStyle(fontSize: 13)),
+          title: const Text('Private link only', style: TextStyle(fontSize: 13, color: BPColors.textPrimary)),
         ),
         const SizedBox(height: 10),
         Row(
           children: [
-            Expanded(child: OutlinedButton(onPressed: () => setState(() => _step = 3), child: const Text('BACK'))),
+            Expanded(child: OutlinedButton(onPressed: () => setState(() => _step = 2), child: const Text('BACK'))),
             const SizedBox(width: 10),
-            Expanded(child: ElevatedButton(onPressed: () => setState(() => _step = 5), child: const Text('CONTINUE'))),
+            Expanded(child: ElevatedButton(onPressed: () => setState(() => _step = 4), child: const Text('CONTINUE'))),
           ],
         ),
       ],
@@ -533,15 +584,15 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
   Widget _buildPreviewStep() {
     return ListView(
       children: [
-        const Text('This is the first visual identity of the capsule.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
+        const Text('This is the first visual identity of the capsule.', style: TextStyle(color: BPColors.textSecondary, fontSize: 12)),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(20)),
+          decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(20)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('VAULT SPHERE', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 9, fontWeight: FontWeight.w800)),
+              Text(widget.sphere == 'orbit' ? 'TIME CAPSULE 2' : widget.sphere == 'hex' ? 'TIME CAPSULE 3' : 'TIME CAPSULE 1', style: const TextStyle(color: BPColors.yellow, fontSize: 9, fontWeight: FontWeight.w800)),
               const SizedBox(height: 4),
               Text(_displayId, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
               const SizedBox(height: 10),
@@ -560,7 +611,7 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: _previewFact('OPENS', '${_openingDate.year}-${_openingDate.month.toString().padLeft(2, '0')}-${_openingDate.day.toString().padLeft(2, '0')}')),
+                  Expanded(child: _previewFact('PUBLISHES', '${_openingDate.year}-${_openingDate.month.toString().padLeft(2, '0')}-${_openingDate.day.toString().padLeft(2, '0')}')),
                   const SizedBox(width: 8),
                   Expanded(child: _previewFact('VISIBILITY', _visibility == 'private' ? 'Private' : 'Public')),
                 ],
@@ -568,10 +619,28 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: BPColors.yellow.withOpacity(0.3))),
+          child: const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline, color: BPColors.yellow, size: 16),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '"Save as locked" keeps this editable — nothing publishes yet. "Seal" locks it permanently and schedules it to publish on the display at the date/time above; it can no longer be edited afterward.',
+                  style: TextStyle(color: BPColors.textSecondary, fontSize: 11, height: 1.35),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
         Row(
           children: [
-            Expanded(child: OutlinedButton(onPressed: () => setState(() => _step = 4), child: const Text('BACK'))),
+            Expanded(child: OutlinedButton(onPressed: () => setState(() => _step = 3), child: const Text('BACK'))),
             const SizedBox(width: 10),
             Expanded(
               child: OutlinedButton(
@@ -593,11 +662,11 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
   Widget _previewFact(String label, String value) {
     return Container(
       padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(10)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 7, fontWeight: FontWeight.w800)),
+          Text(label, style: const TextStyle(color: BPColors.textSecondary, fontSize: 7, fontWeight: FontWeight.w800)),
           const SizedBox(height: 3),
           Text(value, style: const TextStyle(fontSize: 11)),
         ],
@@ -618,12 +687,23 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
           ),
           const SizedBox(height: 20),
           const Text('Capsule saved', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              _readOnly || _justSealed
+                  ? 'Scheduled to publish on the physical display on ${_openingDate.year}-${_openingDate.month.toString().padLeft(2, '0')}-${_openingDate.day.toString().padLeft(2, '0')} at ${_openingTime.format(context)} (your local time).'
+                  : 'Still editable — nothing has published yet. Come back and "Seal" it when you\'re ready to schedule the publish.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: BPColors.textSecondary, fontSize: 12, height: 1.4),
+            ),
+          ),
           const SizedBox(height: 12),
           if (_ownerKey != null) ...[
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 24),
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFFFD84D).withOpacity(0.3))),
+              decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFFFD84D).withOpacity(0.3))),
               child: Column(
                 children: [
                   const Text('OWNER KEY — SAVE THIS', style: TextStyle(color: Color(0xFFFFE78A), fontSize: 9, fontWeight: FontWeight.w800)),
@@ -638,14 +718,14 @@ class _CapsuleCreatorScreenState extends State<CapsuleCreatorScreen> {
               child: Text(
                 'This is the key for editing your capsule later. Keep it safe.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11),
+                style: TextStyle(color: BPColors.textSecondary, fontSize: 11),
               ),
             ),
           ],
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('RETURN TO VAULT SPHERE'),
+            child: Text(widget.sphere == 'orbit' ? 'RETURN TO TIME CAPSULE 2' : widget.sphere == 'hex' ? 'RETURN TO TIME CAPSULE 3' : 'RETURN TO TIME CAPSULE 1'),
           ),
         ],
       ),

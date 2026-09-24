@@ -49,12 +49,18 @@ class _GlowBlobFieldState extends State<GlowBlobField> with SingleTickerProvider
         child: Stack(
           children: [
             widget.child,
-            // Neon light continuously tracing the border outline.
+            // Neon light continuously tracing the border outline —
+            // purely decorative, so it must not swallow taps meant for
+            // the field underneath. Without IgnorePointer here, this
+            // full-size CustomPaint absorbed every tap on the field
+            // (it sits on top in the Stack), and typing never focused.
             Positioned.fill(
-              child: AnimatedBuilder(
-                animation: _borderController,
-                builder: (context, child) => CustomPaint(
-                  painter: _NeonBorderPainter(phase: _borderController.value, color: widget.color, borderRadius: widget.borderRadius),
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _borderController,
+                  builder: (context, child) => CustomPaint(
+                    painter: _NeonBorderPainter(phase: _borderController.value, color: widget.color, borderRadius: widget.borderRadius),
+                  ),
                 ),
               ),
             ),

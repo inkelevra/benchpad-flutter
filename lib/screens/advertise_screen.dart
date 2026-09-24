@@ -12,6 +12,7 @@ import '../widgets/advertise_preview_placeholder.dart';
 import '../widgets/neumorphic_slider.dart';
 import '../widgets/social_platform_button.dart';
 import 'publish_flow_screen.dart';
+import 'my_publications_screen.dart';
 import 'studio_screen.dart';
 
 class _ComposerSnapshot {
@@ -21,21 +22,39 @@ class _ComposerSnapshot {
   _ComposerSnapshot(this.x, this.y, this.scale, this.rotation, this.text, this.options);
 }
 
-/// Advertise screen — ported from advertise.html.
-///
-/// A generated quick-template card is now treated exactly like a
-/// picked photo (matching the PWA's adoptImage(), which every
-/// template — including Culture/Quote — funnels through): it decodes
-/// into the same base image, so Position/Zoom and an additional
-/// message still apply on top of it, instead of being a separate
-/// "final, uneditable" bypass.
+/// Result handed back to the caller when [AdvertiseScreen.composeOnly]
+/// is set — the same photo positioning/zoom + text styling used for a
+/// real publish, but returned instead of published, so the caller (the
+/// Time Capsule reservation wizard) can store the finished image on its
+/// own record and publish it later, on its own schedule.
+class ComposeResult {
+  final Uint8List composedJpeg;
+  final Uint8List? sourcePhotoBytes; // the un-composited photo, for re-editing later without double-baking text
+  final String message;
+  const ComposeResult({required this.composedJpeg, this.sourcePhotoBytes, required this.message});
+}
+
 class AdvertiseScreen extends StatefulWidget {
   /// When set (arrived via Android's Share sheet — see
   /// share_intent_service.dart), this photo loads automatically on
   /// open instead of the empty placeholder.
   final Uint8List? initialImageBytes;
+  // When set (arrived from Schedule Your Moment), the eventual publish
+  // holds until this moment instead of going out immediately — passed
+  // straight through to PublishFlowScreen.
+  final DateTime? scheduledAt;
+  // Pre-fills the message field — used when re-opening this screen to
+  // edit something already composed elsewhere (e.g. a Time Capsule
+  // reservation's saved message).
+  final String? initialMessage;
+  // When true, this screen never publishes anything itself — the main
+  // action instead composes the final image (same ImageComposer used
+  // for a real publish) and returns it via Navigator.pop(ComposeResult),
+  // for a caller like the Time Capsule wizard to store and publish on
+  // its own schedule.
+  final bool composeOnly;
 
-  const AdvertiseScreen({super.key, this.initialImageBytes});
+  const AdvertiseScreen({super.key, this.initialImageBytes, this.scheduledAt, this.initialMessage, this.composeOnly = false});
 
   @override
   State<AdvertiseScreen> createState() => _AdvertiseScreenState();
@@ -43,11 +62,21 @@ class AdvertiseScreen extends StatefulWidget {
 
 class _AdvertiseScreenState extends State<AdvertiseScreen> {
   final _picker = ImagePicker();
+  Uint8List? _rawPhotoBytes; // kept alongside _decodedPhoto so compose-mode can hand back an un-composited source for re-editing
+
+  String _formatScheduledBanner(DateTime dt) {
+    final local = dt.toLocal();
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '${local.day} ${months[local.month - 1]} · $hh:$mm';
+  }
   final _messageController = TextEditingController();
   final _messageFocusNode = FocusNode();
   final _socialHandleController = TextEditingController();
 
   ui.Image? _decodedPhoto;
+  bool _composing = false;
 
   double _imagePositionX = 0;
   double _imagePositionY = 0;
@@ -80,6 +109,9 @@ class _AdvertiseScreenState extends State<AdvertiseScreen> {
     _messageFocusNode.addListener(() {
       if (_messageFocusNode.hasFocus) _pushHistory();
     });
+    if (widget.initialMessage != null) {
+      _messageController.text = widget.initialMessage!;
+    }
     if (widget.initialImageBytes != null) {
       // Post-frame so the first build (with the empty placeholder)
       // completes before swapping in the shared photo.
@@ -126,6 +158,7 @@ class _AdvertiseScreenState extends State<AdvertiseScreen> {
     if (!mounted) return;
     setState(() {
       _decodedPhoto = decoded;
+      _rawPhotoBytes = bytes;
       _imagePositionX = 0;
       _imagePositionY = 0;
       _imageScale = 1.0;
@@ -149,6 +182,7 @@ class _AdvertiseScreenState extends State<AdvertiseScreen> {
       final decoded = await ImageComposer.decodeBytes(bytes);
       setState(() {
         _decodedPhoto = decoded;
+        _rawPhotoBytes = bytes;
         _imagePositionX = 0;
         _imagePositionY = 0;
         _imageScale = 1.0;
@@ -180,6 +214,30 @@ class _AdvertiseScreenState extends State<AdvertiseScreen> {
     await _runTemplate('social', () => TemplateCards.social(platformKey: _socialPlatform!, handle: handle));
   }
 
+  Future<void> _composeAndReturn() async {
+    if (_decodedPhoto == null && _messageController.text.trim().isEmpty) {
+      setState(() => _errorText = 'Add a photo or write a message first.');
+      return;
+    }
+    setState(() { _errorText = null; _composing = true; });
+    try {
+      final composed = await ImageComposer.exportJpeg(
+        photo: _decodedPhoto,
+        text: _messageController.text,
+        options: _textOptions,
+        imagePositionX: _imagePositionX,
+        imagePositionY: _imagePositionY,
+        imageScale: _imageScale,
+        imageRotationDeg: _imageRotation,
+      ).timeout(const Duration(seconds: 30), onTimeout: () => throw Exception('Image preparation timed out — please try again.'));
+      if (!mounted) return;
+      Navigator.pop(context, ComposeResult(composedJpeg: composed, sourcePhotoBytes: _rawPhotoBytes, message: _messageController.text));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _composing = false; _errorText = 'Could not process this: $e'; });
+    }
+  }
+
   Future<void> _publish() async {
     if (_decodedPhoto == null && _messageController.text.trim().isEmpty) {
       setState(() => _errorText = 'Add a photo or write a message first.');
@@ -201,6 +259,7 @@ class _AdvertiseScreenState extends State<AdvertiseScreen> {
           imagePositionY: _imagePositionY,
           imageScale: _imageScale,
           imageRotationDeg: _imageRotation,
+          scheduledAt: widget.scheduledAt,
         ),
       ),
     );
@@ -238,7 +297,19 @@ class _AdvertiseScreenState extends State<AdvertiseScreen> {
         ),
       ),
       child: Scaffold(
-        appBar: AppBar(leading: Builder(builder: homeBackLeading), leadingWidth: 72, centerTitle: true, title: const Text('Post to BenchPad')),
+        appBar: AppBar(
+          leading: Builder(builder: homeBackLeading),
+          leadingWidth: 72,
+          centerTitle: true,
+          title: Text(widget.composeOnly ? 'Process Photo' : (widget.scheduledAt != null ? 'Schedule to BenchPad' : 'Post to BenchPad')),
+          actions: [
+            IconButton(
+              tooltip: 'My Publications',
+              icon: const Icon(Icons.receipt_long_outlined),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyPublicationsScreen())),
+            ),
+          ],
+        ),
         body: NotificationListener<OverscrollIndicatorNotification>(
           onNotification: (n) {
             n.disallowIndicator();
@@ -247,6 +318,25 @@ class _AdvertiseScreenState extends State<AdvertiseScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              if (widget.scheduledAt != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: NeumorphicPalette.accent.withOpacity(0.08), borderRadius: BorderRadius.circular(12), border: Border.all(color: NeumorphicPalette.accent.withOpacity(0.3))),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.event_available, color: NeumorphicPalette.accent, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Scheduled for ${_formatScheduledBanner(widget.scheduledAt!)} — finish your photo and message, then schedule it.',
+                          style: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               _buildPickerButtons(),
               const SizedBox(height: 10),
               _buildQuickTemplatesCollapsible(),
@@ -280,9 +370,12 @@ class _AdvertiseScreenState extends State<AdvertiseScreen> {
                     flex: 2,
                     child: NeumorphicBox(
                       borderRadius: 16,
-                      onTap: _publish,
-                      child: const Center(
-                        child: Text('Publish to BenchPad', style: TextStyle(color: NeumorphicPalette.accent, fontWeight: FontWeight.w800, fontSize: 14)),
+                      onTap: _composing ? null : (widget.composeOnly ? _composeAndReturn : _publish),
+                      child: Center(
+                        child: Text(
+                          _composing ? 'Processing…' : (widget.composeOnly ? 'Use This Photo' : (widget.scheduledAt != null ? 'Schedule to BenchPad' : 'Publish to BenchPad')),
+                          style: const TextStyle(color: NeumorphicPalette.accent, fontWeight: FontWeight.w800, fontSize: 14),
+                        ),
                       ),
                     ),
                   ),

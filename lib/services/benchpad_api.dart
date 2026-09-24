@@ -49,7 +49,7 @@ class StudioImageVariant {
   StudioImageVariant({required this.label, required this.imageData});
 }
 
-/// One Vault Sphere cell (12 "core" pentagons + 150 "standard" hexagons).
+/// One Time Capsule 1 cell (12 "core" pentagons + 150 "standard" hexagons).
 /// Ported from the sphere payload in benchpad-time-capsule.html /
 /// assets/time-capsule-store.js's describe()/normalizeRecord().
 class VaultCell {
@@ -433,6 +433,41 @@ class BenchpadApi {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// GET /api/community-pulse/visits?city=X&country=Y&period=N —
+  /// individual visit timestamps for one city, shown when the person
+  /// taps a city card in Community Pulse.
+  Future<Map<String, dynamic>> getCommunityPulseVisits({
+    required String city,
+    required String country,
+    int periodDays = 30,
+  }) async {
+    final res = await _client
+        .get(_uri('/api/community-pulse/visits', {'city': city, 'country': country, 'period': '$periodDays'}))
+        .timeout(const Duration(seconds: 15));
+    _throwIfNotOk(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// GET /api/publish-queue/board — all currently-active publish jobs
+  /// system-wide (not just this device's own), for the public
+  /// airport-style publish queue board.
+  Future<Map<String, dynamic>> getPublishQueueBoard({int limit = 50}) async {
+    final res = await _client.get(_uri('/api/publish-queue/board', {'limit': '$limit'})).timeout(const Duration(seconds: 15));
+    _throwIfNotOk(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// GET /api/publish-queue/check-slot?scheduledAt=... — the one
+  /// physical display is shared by all three Time Capsules, so a
+  /// scheduled moment taken from any of them must be checked against
+  /// every other scheduled job, not just ones from the same sphere.
+  Future<bool> checkSlotConflict(DateTime scheduledAt) async {
+    final res = await _client.get(_uri('/api/publish-queue/check-slot', {'scheduledAt': scheduledAt.toUtc().toIso8601String()})).timeout(const Duration(seconds: 15));
+    _throwIfNotOk(res);
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    return data['conflict'] == true;
+  }
+
   /// POST /api/local-reports/certificate-email — sends the reporter's
   /// confirmation email with the real rendered certificate image (and
   /// the original evidence photo) attached, once the app has actually
@@ -466,6 +501,7 @@ class BenchpadApi {
     double imageScale = 1,
     String deviceId = AppConfig.defaultDeviceId,
     String displayId = 'CENTRAL',
+    DateTime? scheduledAt,
   }) async {
     final publicationText =
         message.trim().isEmpty ? 'Image-only BenchPad manual composition' : message.trim();
@@ -487,6 +523,7 @@ class BenchpadApi {
             'deviceId': deviceId,
             'displayId': displayId,
             'source': 'BENCHPAD_MANUAL',
+            if (scheduledAt != null) 'scheduledAt': scheduledAt.toUtc().toIso8601String(),
           }),
         )
         .timeout(const Duration(seconds: 45));
@@ -875,7 +912,7 @@ class BenchpadApi {
   }
 
   // ---------------------------------------------------------------------
-  // Capsules / Vault Sphere — ported from benchpad-time-capsule.html,
+  // Capsules / Time Capsule 1 — ported from benchpad-time-capsule.html,
   // capsule-creator.html, assets/time-capsule-store.js addressing scheme.
   // ---------------------------------------------------------------------
 
@@ -889,20 +926,44 @@ class BenchpadApi {
     return list.map((e) => VaultCell.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  /// GET /api/capsules/cell?sphere=vault&type=...&number=... — single
+  /// GET /api/capsules/cell?sphere=...&type=...&number=... — single
   /// cell detail (used before opening the creator, to know if it's
-  /// empty/locked/sealed/open).
-  Future<Map<String, dynamic>> getCell({required String type, required int number}) async {
-    final res = await _client.get(_uri('/api/capsules/cell', {'sphere': 'vault', 'type': type, 'number': '$number'}));
+  /// empty/locked/sealed/open). sphere defaults to 'vault' (Time
+  /// Capsule 1); pass 'orbit' for a Time Capsule 2 (Time Capsule 2)
+  /// position.
+  Future<Map<String, dynamic>> getCell({required String type, required int number, String sphere = 'vault'}) async {
+    final res = await _client.get(_uri('/api/capsules/cell', {'sphere': sphere, 'type': type, 'number': '$number'}));
     _throwIfNotOk(res);
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   /// POST /api/capsules/save — create/update a capsule draft (status
-  /// becomes "locked" unless immediately sealed).
+  /// becomes "locked" unless immediately sealed). On first save for a
+  /// position with no existing row, the server auto-generates and
+  /// returns an access key (`issuedAccessKey`) — this is also how an
+  /// owner can pre-reserve an empty position for someone else: save
+  /// with blank name/message under an owner session, capture the
+  /// returned key, hand it to that person.
+  /// Turns a capsule API error code into a message that actually says
+  /// what to do next, instead of the bare code — invalid_access_key in
+  /// particular was showing up with zero context.
+  String _friendlyCapsuleError(String? code) {
+    switch (code) {
+      case 'capsule_sealed_read_only':
+        return 'This capsule is already sealed';
+      case 'invalid_access_key':
+        return 'This position\'s access key isn\'t remembered on this device (reserved elsewhere, or before this device started remembering keys). Use the code under "My Capsule" in Profile, or Owner access, to continue it.';
+      case 'message_and_opening_date_required':
+        return 'Add a written message before sealing — a photo alone isn\'t enough.';
+      default:
+        return code ?? 'Could not save';
+    }
+  }
+
   Future<Map<String, dynamic>> saveCapsule({
     required String type,
     required int number,
+    String sphere = 'vault',
     String accessKey = '',
     required String ownerName,
     required String ownerCountry,
@@ -915,7 +976,7 @@ class BenchpadApi {
       _uri('/api/capsules/save'),
       headers: {'content-type': 'application/json'},
       body: jsonEncode({
-        'sphere': 'vault',
+        'sphere': sphere,
         'type': type,
         'number': number,
         'accessKey': accessKey,
@@ -932,32 +993,32 @@ class BenchpadApi {
     );
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw Exception(data['error'] == 'capsule_sealed_read_only' ? 'This capsule is already sealed' : (data['error'] ?? 'Could not save'));
+      throw Exception(_friendlyCapsuleError(data['error'] as String?));
     }
     return data;
   }
 
   /// POST /api/capsules/seal — locks the capsule permanently and schedules
   /// its auto-publish on the opening date.
-  Future<void> sealCapsule({required String type, required int number, required String accessKey}) async {
+  Future<void> sealCapsule({required String type, required int number, required String accessKey, String sphere = 'vault'}) async {
     final res = await _client.post(
       _uri('/api/capsules/seal'),
       headers: {'content-type': 'application/json'},
-      body: jsonEncode({'sphere': 'vault', 'type': type, 'number': number, 'accessKey': accessKey}),
+      body: jsonEncode({'sphere': sphere, 'type': type, 'number': number, 'accessKey': accessKey}),
     );
     if (res.statusCode < 200 || res.statusCode >= 300) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      throw Exception(data['error'] ?? 'Could not seal');
+      throw Exception(_friendlyCapsuleError(data['error'] as String?));
     }
   }
 
   /// POST /api/capsules/unlock — verifies an Owner Key against a locked
   /// cell (empty accessKey checks for owner-bypass on server side).
-  Future<bool> unlockCapsule({required String type, required int number, required String accessKey}) async {
+  Future<bool> unlockCapsule({required String type, required int number, required String accessKey, String sphere = 'vault'}) async {
     final res = await _client.post(
       _uri('/api/capsules/unlock'),
       headers: {'content-type': 'application/json'},
-      body: jsonEncode({'sphere': 'vault', 'type': type, 'number': number, 'accessKey': accessKey}),
+      body: jsonEncode({'sphere': sphere, 'type': type, 'number': number, 'accessKey': accessKey}),
     );
     return res.statusCode >= 200 && res.statusCode < 300;
   }
@@ -1536,6 +1597,17 @@ class BenchpadApi {
     return data;
   }
 
+  /// GET /api/device/diagnostics?deviceId=... — the same data as the
+  /// board's local /status.json (Network Control's Full Diagnostics),
+  /// mirrored to the cloud so it can be read from anywhere, not just
+  /// while the phone is on the board's own network.
+  Future<Map<String, dynamic>?> getRemoteDiagnostics(String deviceId) async {
+    final res = await _client.get(_uri('/api/device/diagnostics', {'deviceId': deviceId}));
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    if (res.statusCode < 200 || res.statusCode >= 300 || data['ok'] != true) throw Exception(data['error'] ?? 'Diagnostics unavailable');
+    return data['device'] as Map<String, dynamic>?;
+  }
+
   /// POST /api/device/network-command — sets which transport (WiFi or
   /// LTE) the board should prefer, relayed through the cloud so it
   /// works from anywhere (unlike Network Control's local-only toggle,
@@ -1552,7 +1624,7 @@ class BenchpadApi {
 
   /// GET /api/capsules/sphere?sphere=orbit|vault — real capsule data
   /// from the database (only non-empty ones; positions with no row
-  /// are genuinely empty). Used by Memory/Vault Sphere instead of the
+  /// are genuinely empty). Used by Memory/Time Capsule 1 instead of the
   /// bundled demo JSON, which had every single position filled in
   /// with a fabricated name/country/message — misleading for a public
   /// build.

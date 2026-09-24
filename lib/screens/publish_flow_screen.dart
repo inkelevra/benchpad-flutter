@@ -6,17 +6,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../services/benchpad_api.dart';
 import '../services/notification_service.dart';
 import '../services/image_composer.dart';
+import '../services/publish_queue_tracker.dart';
 import '../theme/neumorphic_theme.dart';
 import '../widgets/flip_digit_counter.dart';
 import '../widgets/orbit_loader.dart';
 import 'result_screen.dart';
+import 'publish_queue_board_screen.dart';
 
-enum _FlowStage { progress, flicker, success, error }
+enum _FlowStage { progress, flicker, success, scheduled, error }
 
 /// Publish flow — a real separate route (pushed from Advertise's
 /// Publish button), ported from advertise.html's #publishProgress /
@@ -32,6 +35,12 @@ class PublishFlowScreen extends StatefulWidget {
   final double imagePositionY;
   final double imageScale;
   final double imageRotationDeg;
+  // When set (and in the future), the server holds the job and won't
+  // serve it to the display until this moment — see the backend's
+  // `scheduled_at <= now()` gate. The UI here skips waiting for a
+  // display confirmation that won't arrive for a while and shows a
+  // "scheduled" confirmation instead.
+  final DateTime? scheduledAt;
 
   const PublishFlowScreen({
     super.key,
@@ -42,6 +51,7 @@ class PublishFlowScreen extends StatefulWidget {
     required this.imagePositionY,
     required this.imageScale,
     required this.imageRotationDeg,
+    this.scheduledAt,
   });
 
   @override
@@ -127,8 +137,28 @@ class _PublishFlowScreenState extends State<PublishFlowScreen> {
         imagePositionX: widget.imagePositionX,
         imagePositionY: widget.imagePositionY,
         imageScale: widget.imageScale,
+        scheduledAt: widget.scheduledAt,
       );
-      _lastJobCode = result.jobCode;
+      if (mounted) setState(() => _lastJobCode = result.jobCode);
+      context.read<PublishQueueTracker>().addJob(result.jobCode);
+
+      final isFutureSchedule = widget.scheduledAt != null && widget.scheduledAt!.isAfter(DateTime.now());
+      if (isFutureSchedule) {
+        // Nothing will display for a while — the server is holding the
+        // job (scheduled_at is in the future), so there's no point
+        // polling for a display confirmation or running the e-ink
+        // flicker sequence, both of which assume it's about to show.
+        _stopStopwatch();
+        _stopFakeProgress();
+        if (!mounted) return;
+        setState(() => _stage = _FlowStage.scheduled);
+        NotificationService.instance.showPublishResult(
+          success: true,
+          title: 'Publication scheduled',
+          body: 'Your BenchPad publication will display on ${_formatScheduled(widget.scheduledAt!)}.',
+        );
+        return;
+      }
 
       if (!result.confirmedDisplayed) {
         await _awaitDisplayConfirmation(result.jobCode);
@@ -355,7 +385,7 @@ class _PublishFlowScreenState extends State<PublishFlowScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final canGoBack = _stage == _FlowStage.error || _stage == _FlowStage.success;
+    final canGoBack = _stage == _FlowStage.error || _stage == _FlowStage.success || _stage == _FlowStage.scheduled;
 
     return Theme(
       data: Theme.of(context).copyWith(
@@ -402,6 +432,7 @@ class _PublishFlowScreenState extends State<PublishFlowScreen> {
               _FlowStage.progress => _buildProgressStage(),
               _FlowStage.flicker => _buildFlickerStage(),
               _FlowStage.success => _buildSuccessStage(),
+              _FlowStage.scheduled => _buildScheduledStage(),
               _FlowStage.error => _buildErrorStage(),
             },
           ),
@@ -455,6 +486,10 @@ class _PublishFlowScreenState extends State<PublishFlowScreen> {
           const Text('BP-AMS-001 · CENTRAL DISPLAY', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
           const SizedBox(height: 8),
           const Text('Publishing content', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary)),
+          if (_lastJobCode != null) ...[
+            const SizedBox(height: 6),
+            Text('№ ${TrackedPublishJob.numberFromCode(_lastJobCode!)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: NeumorphicPalette.textSecondary)),
+          ],
           const SizedBox(height: 14),
           _buildStopwatch(),
           const SizedBox(height: 14),
@@ -604,6 +639,21 @@ class _PublishFlowScreenState extends State<PublishFlowScreen> {
         const SizedBox(height: 20),
         _buildBenchVisualization(),
         const SizedBox(height: 16),
+        NeumorphicBox(
+          soft: true,
+          borderRadius: 14,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PublishQueueBoardScreen())),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.flight_takeoff, size: 14, color: NeumorphicPalette.accent),
+              SizedBox(width: 6),
+              Text('SEE WHAT\'S PUBLISHING NOW', style: TextStyle(color: NeumorphicPalette.accent, fontWeight: FontWeight.w800, fontSize: 11)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
         Row(
           children: [
             Expanded(
@@ -632,6 +682,65 @@ class _PublishFlowScreenState extends State<PublishFlowScreen> {
         const Text('CONFIRMATION CARD PREVIEW', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: NeumorphicPalette.textSecondary, letterSpacing: 0.5)),
         const SizedBox(height: 8),
         _buildConfirmationCardPreview(),
+      ],
+    );
+  }
+
+  String _formatScheduled(DateTime dt) {
+    final local = dt.toLocal();
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '${local.day} ${months[local.month - 1]} ${local.year} · $hh:$mm';
+  }
+
+  /// Shown instead of the live progress/flicker/success sequence when
+  /// [PublishFlowScreen.scheduledAt] is a future moment — the server is
+  /// holding the job until then (scheduled_at <= now() gate), so there
+  /// is nothing to watch happen right now.
+  Widget _buildScheduledStage() {
+    return Column(
+      children: [
+        const Text('BENCHPAD · SCHEDULED', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+        const SizedBox(height: 12),
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(color: NeumorphicPalette.accent.withOpacity(0.15), shape: BoxShape.circle),
+          child: const Center(child: Icon(Icons.event_available, color: NeumorphicPalette.accent, size: 30)),
+        ),
+        const SizedBox(height: 14),
+        const Text('Your publication is scheduled.', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary)),
+        const SizedBox(height: 4),
+        Text(_formatScheduled(widget.scheduledAt!), style: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        const Text('It will display on BP-AMS-001 at that moment — nothing to do until then.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12), textAlign: TextAlign.center),
+        if (_lastJobCode != null) ...[
+          const SizedBox(height: 6),
+          Text('Job $_lastJobCode', style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10)),
+        ],
+        const SizedBox(height: 20),
+        NeumorphicBox(
+          soft: true,
+          borderRadius: 14,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PublishQueueBoardScreen())),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.flight_takeoff, size: 14, color: NeumorphicPalette.accent),
+              SizedBox(width: 6),
+              Text('SEE THE PUBLISH QUEUE', style: TextStyle(color: NeumorphicPalette.accent, fontWeight: FontWeight.w800, fontSize: 11)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        NeumorphicBox(
+          soft: true,
+          borderRadius: 16,
+          onTap: () => Navigator.pop(context, true),
+          child: const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 2), child: Text('DONE', style: TextStyle(color: NeumorphicPalette.textPrimary, fontWeight: FontWeight.w800, fontSize: 12)))),
+        ),
       ],
     );
   }

@@ -8,6 +8,7 @@ import '../widgets/home_back_leading.dart';
 import 'master_telemetry_screen.dart';
 import 'result_screen.dart';
 import 'kinetic_energy_screen.dart';
+import 'publish_queue_board_screen.dart';
 
 /// The Bench — live engineering telemetry view for BP-AMS-001, ported
 /// from benchpad-bench.html ("The engineering view").
@@ -92,7 +93,19 @@ class _BenchEngineeringScreenState extends State<BenchEngineeringScreen> {
         ),
       ),
       child: Scaffold(
-        appBar: AppBar(leading: Builder(builder: homeBackLeading), leadingWidth: 72, centerTitle: true, title: const Text('The Bench')),
+        appBar: AppBar(
+          leading: Builder(builder: homeBackLeading),
+          leadingWidth: 72,
+          centerTitle: true,
+          title: const Text('The Bench'),
+          actions: [
+            IconButton(
+              tooltip: 'Publications',
+              icon: const Icon(Icons.flight_takeoff),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PublishQueueBoardScreen())),
+            ),
+          ],
+        ),
         body: NotificationListener<OverscrollIndicatorNotification>(
           onNotification: (n) {
             n.disallowIndicator();

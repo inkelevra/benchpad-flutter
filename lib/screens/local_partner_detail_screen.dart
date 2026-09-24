@@ -360,7 +360,7 @@ class _LocalPartnerDetailScreenState extends State<LocalPartnerDetailScreen> {
 
   Future<void> _shareProfile(LocalPartnerProfile profile) async {
     // Reuses the app's existing share_plus dependency (already used by
-    // Memory Sphere's "Share capsule" action).
+    // Time Capsule 2's "Share capsule" action).
     Share.share('${profile.name} — ${profile.category} on BenchPad Local Partners\n${profile.offer}', subject: profile.name);
   }
 

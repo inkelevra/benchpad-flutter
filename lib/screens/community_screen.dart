@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/benchpad_api.dart';
-import '../theme/neumorphic_theme.dart';
+import '../theme/benchpad_dark_theme.dart';
 import '../widgets/community_pulse_globe.dart';
 import '../widgets/home_back_leading.dart';
 import 'founding_certificates_admin_screen.dart';
@@ -205,14 +205,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: NeumorphicPalette.background,
-        titleTextStyle: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
-        contentTextStyle: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 14),
+        backgroundColor: BPColors.bg,
+        titleTextStyle: const TextStyle(color: BPColors.textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
+        contentTextStyle: const TextStyle(color: BPColors.textSecondary, fontSize: 14),
         title: const Text('Delete this founder record?'),
-        content: const Text('Delete an unpublished record, or archive a previously published one.', style: TextStyle(color: NeumorphicPalette.textSecondary)),
+        content: const Text('Delete an unpublished record, or archive a previously published one.', style: TextStyle(color: BPColors.textSecondary)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: NeumorphicPalette.danger))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: BPColors.danger))),
         ],
       ),
     );
@@ -260,28 +260,32 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
     return Theme(
       data: Theme.of(context).copyWith(
-        scaffoldBackgroundColor: NeumorphicPalette.background,
+        scaffoldBackgroundColor: BPColors.bg,
         appBarTheme: const AppBarTheme(
-          backgroundColor: NeumorphicPalette.background,
-          foregroundColor: NeumorphicPalette.textPrimary,
+          backgroundColor: BPColors.bg,
+          foregroundColor: BPColors.textPrimary,
           elevation: 0,
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
         ),
+        textTheme: Theme.of(context).textTheme.apply(bodyColor: BPColors.textPrimary, displayColor: BPColors.textPrimary),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(backgroundColor: BPColors.yellow, foregroundColor: BPColors.bg, disabledBackgroundColor: BPColors.border, disabledForegroundColor: BPColors.textSecondary),
+        ),
         outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(foregroundColor: NeumorphicPalette.textPrimary, disabledForegroundColor: NeumorphicPalette.textSecondary, side: const BorderSide(color: NeumorphicPalette.accent)),
+          style: OutlinedButton.styleFrom(foregroundColor: BPColors.textPrimary, disabledForegroundColor: BPColors.textSecondary, side: const BorderSide(color: BPColors.yellow)),
         ),
         textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(foregroundColor: NeumorphicPalette.accent),
+          style: TextButton.styleFrom(foregroundColor: BPColors.yellow),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: NeumorphicPalette.background,
-          labelStyle: const TextStyle(color: NeumorphicPalette.textSecondary),
-          floatingLabelStyle: const TextStyle(color: NeumorphicPalette.accent),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.shadowDark)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.shadowDark)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.accent, width: 1.5)),
+          fillColor: BPColors.card,
+          labelStyle: const TextStyle(color: BPColors.textSecondary),
+          floatingLabelStyle: const TextStyle(color: BPColors.yellow),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.border)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.border)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.yellow, width: 1.5)),
         ),
       ),
       child: Scaffold(
@@ -307,11 +311,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
               children: [
                 const Text('FOUNDERS WALL · VERIFIED SUPPORTERS', style: TextStyle(color: Color(0xFF9857E0), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
                 const SizedBox(height: 6),
-                const Text('THE FIRST PEOPLE BEHIND BENCHPAD', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary)),
+                const Text('THE FIRST PEOPLE BEHIND BENCHPAD', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: BPColors.textPrimary)),
                 const SizedBox(height: 8),
                 const Text(
                   'A permanent digital record for Founding Supporters, Sustainability Champions and Urban Heroes.',
-                  style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12),
+                  style: TextStyle(color: BPColors.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 20),
                 const Text('COMMUNITY PULSE', style: TextStyle(color: Color(0xFF2A9BB8), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
@@ -320,109 +324,31 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   locations: _pulseLocations,
                   emptyNotice: _pulseNotice,
                   onInteracting: (interacting) => setState(() => _globeInteracting = interacting),
+                  onCityTap: _showCityVisits,
                 ),
                 const SizedBox(height: 20),
-                if (_error != null) Text(_error!, style: const TextStyle(color: NeumorphicPalette.danger)),
-                if (_isOwner) ...[_buildOwnerPanel(), const SizedBox(height: 20)],
-                GridView.count(
-                  crossAxisCount: 3,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-              childAspectRatio: 1.1,
-              children: [
-                _metric('PUBLISHED', '$published'),
-                _metric('FIRST TWELVE', '${urbanHeroes.length} / 12'),
-                _metric('CERTIFICATES', '$certificates'),
-              ],
-            ),
-            const SizedBox(height: 20),
-            const Text('THE FIRST TWELVE', style: TextStyle(color: Color(0xFFF0C45E), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
-            const SizedBox(height: 4),
-            const Text('Twelve permanent numbered positions. Unfilled positions remain reserved.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11)),
-            const SizedBox(height: 10),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, crossAxisSpacing: 8, mainAxisSpacing: 8, childAspectRatio: 0.85),
-              itemCount: 12,
-              itemBuilder: (context, i) {
-                final n = i + 1;
-                Map<String, dynamic>? found;
-                for (final f in urbanHeroes) {
-                  final match = RegExp(r'(\d+)').firstMatch('${f['founderNumber']}');
-                  if (match != null && int.tryParse(match.group(1)!) == n) { found = f; break; }
-                }
-                final filled = found != null;
-                return Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: filled
-                        ? null
-                        : [
-                            BoxShadow(color: NeumorphicPalette.shadowDark.withOpacity(0.55), offset: const Offset(3, 3), blurRadius: 6),
-                            const BoxShadow(color: Colors.white, offset: Offset(-3, -3), blurRadius: 6),
-                          ],
-                    color: filled ? const Color(0xFFF0C45E).withOpacity(0.08) : NeumorphicPalette.background,
-                    border: Border.all(color: filled ? const Color(0xFFF0C45E).withOpacity(0.4) : Colors.transparent),
+                if (_error != null) Text(_error!, style: const TextStyle(color: BPColors.danger)),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: const Color(0xFFBD6CFF).withOpacity(0.06), borderRadius: BorderRadius.circular(14), border: const Border(left: BorderSide(color: Color(0xFFBD6CFF), width: 3))),
+                  child: const Text(
+                    "Privacy: a real name, nickname, image and optional location are published only with the participant's approval.",
+                    style: TextStyle(color: BPColors.textSecondary, fontSize: 11),
                   ),
-                  padding: const EdgeInsets.all(8),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(n.toString().padLeft(2, '0'), style: const TextStyle(color: Color(0xFFB88B2D), fontSize: 8, fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 4),
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: filled ? NeumorphicPalette.background : const Color(0xFFF0C45E).withOpacity(0.12),
-                          border: filled ? null : Border.all(color: const Color(0xFFF0C45E).withOpacity(0.5), width: 1.5),
-                        ),
-                        alignment: Alignment.center,
-                        child: filled
-                            ? Text(_initials(found!['displayName'] as String?), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFFB88B2D)))
-                            : const Icon(Icons.person_outline, size: 20, color: Color(0xFFF0C45E)),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        filled ? '${found!['displayName']}' : 'Reserved',
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-            ..._tiers.entries.map((entry) => _buildTierSection(entry.key, entry.value.$1, entry.value.$2)),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: const Color(0xFFBD6CFF).withOpacity(0.06), borderRadius: BorderRadius.circular(14), border: const Border(left: BorderSide(color: Color(0xFFBD6CFF), width: 3))),
-              child: const Text(
-                "Privacy: a real name, nickname, image and optional location are published only with the participant's approval.",
-                style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text('GOT AN IDEA?', style: TextStyle(color: Color(0xFF83CFE1), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
-            const SizedBox(height: 4),
-            const Text("Tell us what you'd like to see — goes straight to the BenchPad team.", style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
-            const SizedBox(height: 10),
-            TextField(controller: _ideaController, maxLines: 4, maxLength: 2000, decoration: const InputDecoration(hintText: 'What would make BenchPad better?')),
-            TextField(controller: _contactController, decoration: const InputDecoration(labelText: "Email (optional, if you'd like a reply)")),
-            const SizedBox(height: 10),
-            ElevatedButton(onPressed: _sending ? null : _sendIdea, child: Text(_sending ? 'Sending…' : 'Send idea')),
-            if (_ideaStatus != null) ...[
-              const SizedBox(height: 8),
-              Text(_ideaStatus!, style: TextStyle(color: _ideaIsError ? NeumorphicPalette.danger : const Color(0xFF9BDFF0), fontSize: 11)),
-            ],
+                ),
+                const SizedBox(height: 20),
+                const Text('GOT AN IDEA?', style: TextStyle(color: Color(0xFF83CFE1), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                const SizedBox(height: 4),
+                const Text("Tell us what you'd like to see — goes straight to the BenchPad team.", style: TextStyle(color: BPColors.textSecondary, fontSize: 12)),
+                const SizedBox(height: 10),
+                TextField(controller: _ideaController, maxLines: 4, maxLength: 2000, decoration: const InputDecoration(hintText: 'What would make BenchPad better?')),
+                TextField(controller: _contactController, decoration: const InputDecoration(labelText: "Email (optional, if you'd like a reply)")),
+                const SizedBox(height: 10),
+                ElevatedButton(onPressed: _sending ? null : _sendIdea, child: Text(_sending ? 'Sending…' : 'Send idea')),
+                if (_ideaStatus != null) ...[
+                  const SizedBox(height: 8),
+                  Text(_ideaStatus!, style: TextStyle(color: _ideaIsError ? BPColors.danger : const Color(0xFF9BDFF0), fontSize: 11)),
+                ],
               ],
             ),
           ),
@@ -432,7 +358,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 
   Widget _buildOwnerPanel() {
-    return NeumorphicBox(
+    return DarkCard(
       flat: true,
       borderRadius: 16,
       child: Column(
@@ -442,8 +368,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
               onTap: () => setState(() => _showEditor = !_showEditor),
               child: Row(
                 children: [
-                  const Expanded(child: Text('OWNER · MANAGE FOUNDERS', style: TextStyle(color: NeumorphicPalette.accent, fontWeight: FontWeight.w800, fontSize: 11))),
-                  Icon(_showEditor ? Icons.expand_less : Icons.expand_more, color: NeumorphicPalette.accent),
+                  const Expanded(child: Text('OWNER · MANAGE FOUNDERS', style: TextStyle(color: BPColors.yellow, fontWeight: FontWeight.w800, fontSize: 11))),
+                  Icon(_showEditor ? Icons.expand_less : Icons.expand_more, color: BPColors.yellow),
                 ],
               ),
             ),
@@ -459,8 +385,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(color: NeumorphicPalette.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                  child: const Text('Editing an existing founder', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 11)),
+                  decoration: BoxDecoration(color: BPColors.yellow.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                  child: const Text('Editing an existing founder', style: TextStyle(color: BPColors.yellow, fontSize: 11)),
                 ),
               TextField(controller: _displayNameController, decoration: const InputDecoration(labelText: 'Display name')),
               const SizedBox(height: 8),
@@ -469,8 +395,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
               TextField(controller: _messageController, maxLines: 3, decoration: const InputDecoration(labelText: 'Message')),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
-                style: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 14),
-                dropdownColor: NeumorphicPalette.background,
+                style: const TextStyle(color: BPColors.textPrimary, fontSize: 14),
+                dropdownColor: BPColors.bg,
                 value: _editTier,
                 decoration: const InputDecoration(labelText: 'Tier'),
                 items: _tiers.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value.$1, style: const TextStyle(fontSize: 12)))).toList(),
@@ -478,8 +404,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                style: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 14),
-                dropdownColor: NeumorphicPalette.background,
+                style: const TextStyle(color: BPColors.textPrimary, fontSize: 14),
+                dropdownColor: BPColors.bg,
                 value: _editStatus,
                 decoration: const InputDecoration(labelText: 'Status'),
                 items: const [
@@ -491,8 +417,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                style: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 14),
-                dropdownColor: NeumorphicPalette.background,
+                style: const TextStyle(color: BPColors.textPrimary, fontSize: 14),
+                dropdownColor: BPColors.bg,
                 value: _editReservation,
                 decoration: const InputDecoration(labelText: 'Reservation status'),
                 items: const [
@@ -507,13 +433,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 contentPadding: EdgeInsets.zero,
                 value: _editConsent,
                 onChanged: (v) => setState(() => _editConsent = v ?? false),
-                title: const Text('Consent confirmed', style: TextStyle(fontSize: 12, color: NeumorphicPalette.textPrimary)),
+                title: const Text('Consent confirmed', style: TextStyle(fontSize: 12, color: BPColors.textPrimary)),
               ),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 value: _editCertificatePublic,
                 onChanged: (v) => setState(() => _editCertificatePublic = v ?? false),
-                title: const Text('Certificate public', style: TextStyle(fontSize: 12, color: NeumorphicPalette.textPrimary)),
+                title: const Text('Certificate public', style: TextStyle(fontSize: 12, color: BPColors.textPrimary)),
               ),
               const SizedBox(height: 8),
               Row(
@@ -532,25 +458,25 @@ class _CommunityScreenState extends State<CommunityScreen> {
               ),
               if (_ownerMsg != null) ...[
                 const SizedBox(height: 8),
-                Text(_ownerMsg!, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11)),
+                Text(_ownerMsg!, style: const TextStyle(color: BPColors.textSecondary, fontSize: 11)),
               ],
               const SizedBox(height: 16),
-              const Text('ALL FOUNDER RECORDS', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 9, fontWeight: FontWeight.w800)),
+              const Text('ALL FOUNDER RECORDS', style: TextStyle(color: BPColors.textSecondary, fontSize: 9, fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
               if (_allFounders.isEmpty)
-                const Text('No founder records yet.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12))
+                const Text('No founder records yet.', style: TextStyle(color: BPColors.textSecondary, fontSize: 12))
               else
                 ..._allFounders.map((f) => Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(10)),
+                      decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(10)),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
                               Expanded(child: Text('${f['displayName'] ?? 'Unnamed'}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12))),
-                              Text('${f['status']}', style: const TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800)),
+                              Text('${f['status']}', style: const TextStyle(color: BPColors.yellow, fontSize: 10, fontWeight: FontWeight.w800)),
                             ],
                           ),
                           const SizedBox(height: 6),
@@ -565,7 +491,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               TextButton(onPressed: () => _startEditFounder(f), child: const Text('EDIT')),
                               TextButton(
                                 onPressed: () => _deleteFounderRecord(f),
-                                style: TextButton.styleFrom(foregroundColor: NeumorphicPalette.danger),
+                                style: TextButton.styleFrom(foregroundColor: BPColors.danger),
                                 child: const Text('DELETE'),
                               ),
                             ],
@@ -579,15 +505,73 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
   }
 
+  Future<void> _showCityVisits(String city, String country) async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: BPColors.bg,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => FutureBuilder<Map<String, dynamic>>(
+        future: _api.getCommunityPulseVisits(city: city, country: country),
+        builder: (ctx, snapshot) {
+          final loading = snapshot.connectionState != ConnectionState.done;
+          final visits = (snapshot.data?['visits'] as List?)?.cast<String>() ?? [];
+          return Padding(
+            padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('COMMUNITY PULSE', style: TextStyle(color: Color(0xFF2A9BB8), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                Text('$city, $country', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: BPColors.textPrimary)),
+                const SizedBox(height: 4),
+                Text(loading ? 'Loading visit times…' : '${visits.length} visits in the last 30 days', style: const TextStyle(color: BPColors.textSecondary, fontSize: 11)),
+                const SizedBox(height: 14),
+                if (loading)
+                  const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: Center(child: CircularProgressIndicator()))
+                else if (snapshot.hasError)
+                  const Text('Could not load visit times.', style: TextStyle(color: BPColors.danger, fontSize: 12))
+                else if (visits.isEmpty)
+                  const Text('No individual visit records for this city yet.', style: TextStyle(color: BPColors.textSecondary, fontSize: 12))
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 340),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: visits.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1, color: BPColors.border),
+                      itemBuilder: (ctx, i) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(_formatVisitTime(visits[i]), style: const TextStyle(fontSize: 12.5, color: BPColors.textPrimary)),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  String _formatVisitTime(String iso) {
+    final dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return iso;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '${dt.day} ${months[dt.month - 1]} ${dt.year} · $hh:$mm';
+  }
+
   Widget _metric(String label, String value) {
     return Container(
-      decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(14)),
+      decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(14)),
       padding: const EdgeInsets.all(8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(label, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 7, fontWeight: FontWeight.w800)),
+          Text(label, style: const TextStyle(color: BPColors.textSecondary, fontSize: 7, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
           Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
         ],
@@ -606,7 +590,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(title.toUpperCase(), style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
-              Text('${items.length} PUBLISHED', style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 9)),
+              Text('${items.length} PUBLISHED', style: const TextStyle(color: BPColors.textSecondary, fontSize: 9)),
             ],
           ),
           const SizedBox(height: 10),
@@ -614,29 +598,29 @@ class _CommunityScreenState extends State<CommunityScreen> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(14)),
-              child: const Text('No published profiles yet.', textAlign: TextAlign.center, style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
+              decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(14)),
+              child: const Text('No published profiles yet.', textAlign: TextAlign.center, style: TextStyle(color: BPColors.textSecondary, fontSize: 12)),
             )
           else
             ...items.map((f) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: NeumorphicBox(
+                  child: DarkCard(
                     flat: true,
                     borderRadius: 14,
                     child: Row(
                       children: [
-                        CircleAvatar(radius: 22, backgroundColor: NeumorphicPalette.background, child: Text(_initials(f['displayName'] as String?), style: TextStyle(color: color, fontSize: 12))),
+                        CircleAvatar(radius: 22, backgroundColor: BPColors.bg, child: Text(_initials(f['displayName'] as String?), style: TextStyle(color: color, fontSize: 12))),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text('${f['displayName']}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                              if (f['location'] != null) Text('${f['location']}', style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10)),
+                              if (f['location'] != null) Text('${f['location']}', style: const TextStyle(color: BPColors.textSecondary, fontSize: 10)),
                               if (f['message'] != null && (f['message'] as String).isNotEmpty)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 4),
-                                  child: Text('"${f['message']}"', style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11, fontStyle: FontStyle.italic)),
+                                  child: Text('"${f['message']}"', style: const TextStyle(color: BPColors.textSecondary, fontSize: 11, fontStyle: FontStyle.italic)),
                                 ),
                             ],
                           ),

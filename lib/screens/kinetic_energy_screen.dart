@@ -1,7 +1,4 @@
-import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:sensors_plus/sensors_plus.dart';
 import '../services/benchpad_api.dart';
 import '../theme/neumorphic_theme.dart';
 
@@ -10,13 +7,19 @@ import '../theme/neumorphic_theme.dart';
 /// (and back) -> USB -> ESP32-S3 -> XIAO -> E-Ink pixel assembly ->
 /// display flicker -> Kinesus logo.
 ///
-/// Battery charge now reads real telemetry from /api/device/status
-/// when the device has reported it (batteryPercent, solarInputW) —
-/// falls back to the honest DEMO badge/value when the device hasn't
-/// reported yet (batteryPercent is null), same pattern as the
-/// solar/CO2 stats in Kinesus Info. The flow-path animation itself
-/// stays a demo flourish either way — it isn't literally reading
-/// live current through the wires, just illustrating the path.
+/// Shows the real fields the Master board's Victron BLE decode
+/// actually reports to /api/device/status: battery voltage/current,
+/// solar input wattage, charging status. Deliberately does NOT show
+/// a battery charge PERCENTAGE — the Victron SmartSolar MPPT is a
+/// charge controller, not a battery monitor; it has no way to
+/// determine state-of-charge, only voltage and current. An earlier
+/// version of this screen showed a percentage anyway, permanently
+/// stuck on a hardcoded 0.76 'DEMO' placeholder (labeled, but easy to
+/// miss) since the field it expected never actually arrives — exactly
+/// the kind of fabricated-looking number this project's own firmware
+/// comments elsewhere explicitly reject ("controller reports voltage,
+/// not state-of-charge — sending a made-up percentage would be a
+/// guess dressed up as a real reading").
 class KineticEnergyScreen extends StatefulWidget {
   const KineticEnergyScreen({super.key});
 
@@ -25,10 +28,11 @@ class KineticEnergyScreen extends StatefulWidget {
 }
 
 class _KineticEnergyScreenState extends State<KineticEnergyScreen> {
-  static const _demoLevel = 0.76;
   final _api = BenchpadApi();
-  double? _batteryPercent;
+  double? _batteryVoltage;
+  double? _batteryCurrent;
   double? _solarInputW;
+  String? _chargingStatus;
   bool _loading = true;
 
   @override
@@ -44,12 +48,15 @@ class _KineticEnergyScreenState extends State<KineticEnergyScreen> {
   }
 
   Future<void> _loadTelemetry() async {
+    if (mounted) setState(() => _loading = true);
     try {
       final data = await _api.getDeviceEngineeringStatus('BP-AMS-001');
       if (!mounted) return;
       setState(() {
-        _batteryPercent = (data['batteryPercent'] as num?)?.toDouble();
+        _batteryVoltage = (data['batteryVoltage'] as num?)?.toDouble();
+        _batteryCurrent = (data['batteryCurrent'] as num?)?.toDouble();
         _solarInputW = (data['solarInputW'] as num?)?.toDouble();
+        _chargingStatus = data['chargingStatus'] as String?;
         _loading = false;
       });
     } catch (_) {
@@ -57,11 +64,10 @@ class _KineticEnergyScreenState extends State<KineticEnergyScreen> {
     }
   }
 
-  bool get _hasLiveBattery => _batteryPercent != null;
+  bool get _hasLiveData => _batteryVoltage != null || _batteryCurrent != null || _solarInputW != null || _chargingStatus != null;
 
   @override
   Widget build(BuildContext context) {
-    final level = _hasLiveBattery ? (_batteryPercent! / 100).clamp(0.0, 1.0) : _demoLevel;
     return Theme(
       data: Theme.of(context).copyWith(
         scaffoldBackgroundColor: NeumorphicPalette.background,
@@ -87,17 +93,34 @@ class _KineticEnergyScreenState extends State<KineticEnergyScreen> {
               children: [
                 if (!_loading) _statusBadge(),
                 const SizedBox(height: 14),
-                const Text('Battery charge', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary)),
+                const Text('Solar & battery', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary)),
                 const SizedBox(height: 4),
-                const Text('Tilt your phone — the liquid reacts to the gyroscope.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
-                const SizedBox(height: 20),
-                Center(child: LiquidBatteryCapsule(level: level)),
-                const SizedBox(height: 8),
-                Center(child: Text('${(level * 100).round()}%', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary))),
-                if (_hasLiveBattery && _solarInputW != null) ...[
-                  const SizedBox(height: 6),
-                  Center(child: Text('Solar input: ${_solarInputW!.toStringAsFixed(1)} W', style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12))),
-                ],
+                const Text('Read from the Victron SmartSolar 75/15 over Bluetooth.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12)),
+                const SizedBox(height: 16),
+                if (_loading)
+                  const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator(color: NeumorphicPalette.accent)))
+                else if (!_hasLiveData)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text('The device has not reported solar/battery telemetry yet.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 13)),
+                  )
+                else
+                  NeumorphicBox(
+                    flat: true,
+                    borderRadius: 18,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Column(
+                      children: [
+                        _telemetryRow(Icons.bolt, 'Battery voltage', _batteryVoltage != null ? '${_batteryVoltage!.toStringAsFixed(2)} V' : '—'),
+                        const Divider(height: 1, color: Color(0x22000000)),
+                        _telemetryRow(Icons.electrical_services, 'Battery current', _batteryCurrent != null ? '${_batteryCurrent!.toStringAsFixed(2)} A' : '—'),
+                        const Divider(height: 1, color: Color(0x22000000)),
+                        _telemetryRow(Icons.wb_sunny_outlined, 'Solar input', _solarInputW != null ? '${_solarInputW!.toStringAsFixed(0)} W' : '—'),
+                        const Divider(height: 1, color: Color(0x22000000)),
+                        _telemetryRow(Icons.battery_charging_full, 'Charging status', _chargingStatus ?? '—'),
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 36),
                 const Text('Power & signal path', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: NeumorphicPalette.textPrimary)),
                 const SizedBox(height: 4),
@@ -115,8 +138,22 @@ class _KineticEnergyScreenState extends State<KineticEnergyScreen> {
     );
   }
 
+  Widget _telemetryRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: NeumorphicPalette.accent),
+          const SizedBox(width: 12),
+          Expanded(child: Text(label, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 13))),
+          Text(value, style: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 14, fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+
   Widget _statusBadge() {
-    if (_hasLiveBattery) {
+    if (_hasLiveData) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(color: NeumorphicPalette.success.withOpacity(0.12), borderRadius: BorderRadius.circular(999)),
@@ -125,7 +162,7 @@ class _KineticEnergyScreenState extends State<KineticEnergyScreen> {
           children: [
             Icon(Icons.bolt, size: 13, color: NeumorphicPalette.success),
             SizedBox(width: 6),
-            Text('LIVE — real battery telemetry from the device', style: TextStyle(color: NeumorphicPalette.success, fontSize: 10, fontWeight: FontWeight.w800)),
+            Text('LIVE — real telemetry from the device', style: TextStyle(color: NeumorphicPalette.success, fontSize: 10, fontWeight: FontWeight.w800)),
           ],
         ),
       );
@@ -138,117 +175,11 @@ class _KineticEnergyScreenState extends State<KineticEnergyScreen> {
         children: [
           Icon(Icons.info_outline, size: 13, color: NeumorphicPalette.danger),
           SizedBox(width: 6),
-          Text('DEMO — device has not reported battery telemetry yet', style: TextStyle(color: NeumorphicPalette.danger, fontSize: 10, fontWeight: FontWeight.w800)),
+          Text('No live data yet', style: TextStyle(color: NeumorphicPalette.danger, fontSize: 10, fontWeight: FontWeight.w800)),
         ],
       ),
     );
   }
-}
-
-/// Tilt-reactive liquid fill inside a glass capsule — rose-gold liquid,
-/// gyroscope-driven tilt, continuous gentle ripple.
-class LiquidBatteryCapsule extends StatefulWidget {
-  final double level;
-  final double width;
-  final double height;
-
-  const LiquidBatteryCapsule({super.key, required this.level, this.width = 120, this.height = 240});
-
-  @override
-  State<LiquidBatteryCapsule> createState() => _LiquidBatteryCapsuleState();
-}
-
-class _LiquidBatteryCapsuleState extends State<LiquidBatteryCapsule> with SingleTickerProviderStateMixin {
-  late final AnimationController _waveController;
-  StreamSubscription<GyroscopeEvent>? _gyroSub;
-  double _tilt = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _waveController = AnimationController(vsync: this, duration: const Duration(seconds: 3))..repeat();
-    try {
-      _gyroSub = gyroscopeEventStream().listen((event) {
-        if (!mounted) return;
-        setState(() {
-          // Integrate + decay, clamped — a gentle, stable tilt rather
-          // than a jittery raw sensor read.
-          _tilt = (_tilt * 0.92 + event.y * 0.06).clamp(-0.5, 0.5);
-        });
-      });
-    } catch (_) {
-      // No gyroscope available (e.g. emulator/desktop) — liquid just
-      // sits level with its own ripple, no crash.
-    }
-  }
-
-  @override
-  void dispose() {
-    _waveController.dispose();
-    _gyroSub?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _waveController,
-      builder: (context, child) {
-        return CustomPaint(
-          size: Size(widget.width, widget.height),
-          painter: _LiquidPainter(level: widget.level, wavePhase: _waveController.value, tilt: _tilt),
-        );
-      },
-    );
-  }
-}
-
-class _LiquidPainter extends CustomPainter {
-  final double level;
-  final double wavePhase;
-  final double tilt;
-
-  _LiquidPainter({required this.level, required this.wavePhase, required this.tilt});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final capsuleRadius = size.width / 2;
-    final rrect = RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, size.width, size.height), Radius.circular(capsuleRadius));
-
-    canvas.drawRRect(rrect, Paint()..color = const Color(0x14FFFFFF));
-
-    canvas.save();
-    canvas.clipRRect(rrect);
-    canvas.translate(size.width / 2, size.height * (1 - level));
-    canvas.rotate(tilt);
-
-    final w = size.width * 2.4;
-    final path = Path()..moveTo(-w / 2, 0);
-    for (double x = -w / 2; x <= w / 2; x += 4) {
-      final y = math.sin((x / 36) + wavePhase * 2 * math.pi) * 6;
-      path.lineTo(x, y);
-    }
-    path.lineTo(w / 2, size.height * 2);
-    path.lineTo(-w / 2, size.height * 2);
-    path.close();
-
-    final liquidPaint = Paint()
-      ..shader = const LinearGradient(colors: [Color(0xFFF0C4A8), Color(0xFFB4693F)], begin: Alignment.topCenter, end: Alignment.bottomCenter)
-          .createShader(Rect.fromLTWH(-w / 2, 0, w, size.height * 2));
-    canvas.drawPath(path, liquidPaint);
-    canvas.restore();
-
-    canvas.drawRRect(
-      rrect,
-      Paint()
-        ..color = Colors.white.withOpacity(0.55)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _LiquidPainter oldDelegate) => oldDelegate.level != level || oldDelegate.wavePhase != wavePhase || oldDelegate.tilt != tilt;
 }
 
 /// The full stage chain, sun down to the XIAO board, with pulsing

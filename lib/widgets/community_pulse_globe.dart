@@ -34,8 +34,12 @@ class CommunityPulseGlobe extends StatefulWidget {
   /// arena instead of the globe, causing the whole page to scroll (and
   /// even trigger pull-to-refresh) instead of rotating the globe.
   final ValueChanged<bool>? onInteracting;
+  /// Called (in addition to rotating the globe to face it) when the
+  /// person taps a city row — the parent fetches and shows individual
+  /// visit times for that city.
+  final void Function(String city, String country)? onCityTap;
 
-  const CommunityPulseGlobe({super.key, required this.locations, this.emptyNotice, this.onInteracting});
+  const CommunityPulseGlobe({super.key, required this.locations, this.emptyNotice, this.onInteracting, this.onCityTap});
 
   @override
   State<CommunityPulseGlobe> createState() => _CommunityPulseGlobeState();
@@ -200,7 +204,12 @@ class _CommunityPulseGlobeState extends State<CommunityPulseGlobe> with TickerPr
                 soft: true,
                 pressed: selected,
                 borderRadius: 12,
-                onTap: () => _focusOn(i),
+                onTap: () {
+                  _focusOn(i);
+                  final city = loc['city'] as String?;
+                  final country = loc['country'] as String?;
+                  if (city != null && country != null) widget.onCityTap?.call(city, country);
+                },
                 child: Row(
                   children: [
                     Expanded(
@@ -210,6 +219,10 @@ class _CommunityPulseGlobeState extends State<CommunityPulseGlobe> with TickerPr
                       ),
                     ),
                     Text('${(loc['visitors'] as num?)?.toInt() ?? 0} visitors', style: const TextStyle(fontSize: 11, color: NeumorphicPalette.textSecondary)),
+                    if (widget.onCityTap != null) ...[
+                      const SizedBox(width: 4),
+                      const Icon(Icons.chevron_right, size: 16, color: NeumorphicPalette.textSecondary),
+                    ],
                   ],
                 ),
               ),

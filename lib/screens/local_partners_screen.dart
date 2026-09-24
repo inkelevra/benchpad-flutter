@@ -41,6 +41,12 @@ class _LocalPartnersScreenState extends State<LocalPartnersScreen> {
   _ViewMode _viewMode = _ViewMode.large;
   String? _expandedStat;
   Set<String> _savedSlugs = {};
+  // Fresh random order each time this screen opens — real distance-sort
+  // will come back once partners are real businesses with real
+  // distances (see DemoPartner.all), but with all 20 still fake demo
+  // data, always showing the "nearest" one first just meant the same
+  // card every single time.
+  late final List<DemoPartner> _shuffledOrder = [...DemoPartner.all]..shuffle();
 
   @override
   void initState() {
@@ -85,12 +91,12 @@ class _LocalPartnersScreenState extends State<LocalPartnersScreen> {
   static const _badgeSize = 52.0;
 
   List<DemoPartner> get _visible {
-    var list = _category == 'all' ? DemoPartner.all : DemoPartner.all.where((p) => p.category == _category).toList();
+    var list = _category == 'all' ? _shuffledOrder : _shuffledOrder.where((p) => p.category == _category).toList();
     if (_search.trim().isNotEmpty) {
       final q = _search.trim().toLowerCase();
       list = list.where((p) => p.name.toLowerCase().contains(q)).toList();
     }
-    return [...list]..sort((a, b) => double.parse(a.distanceText.replaceAll(' km', '')).compareTo(double.parse(b.distanceText.replaceAll(' km', ''))));
+    return list;
   }
 
   @override

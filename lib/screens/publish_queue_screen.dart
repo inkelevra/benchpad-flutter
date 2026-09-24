@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/benchpad_api.dart';
 import '../theme/neumorphic_theme.dart';
+import 'publish_queue_board_screen.dart';
 
 /// Publish Queue — full display queue manager, ported from
 /// publish-jobs.html.
@@ -154,7 +155,16 @@ class _PublishQueueScreenState extends State<PublishQueueScreen> {
         ),
       ),
       child: Scaffold(
-        appBar: AppBar(title: const Text('Publish Queue')),
+        appBar: AppBar(
+          title: const Text('Publish Queue'),
+          actions: [
+            IconButton(
+              tooltip: 'Public board',
+              icon: const Icon(Icons.flight_takeoff),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PublishQueueBoardScreen())),
+            ),
+          ],
+        ),
         body: NotificationListener<OverscrollIndicatorNotification>(
           onNotification: (n) {
             n.disallowIndicator();

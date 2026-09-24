@@ -33,19 +33,47 @@ class _NetworkControlScreenState extends State<NetworkControlScreen> {
   bool _sendingRemoteCommand = false;
   Timer? _autoRefresh;
 
+  // v5.27 — remote (cloud) mirror of Full Diagnostics, works from
+  // anywhere, independent of the local-only _data/_load above.
+  Map<String, dynamic>? _remoteData;
+  String? _remoteError;
+  bool _remoteLoading = false;
+  Timer? _remoteAutoRefresh;
+
   @override
   void initState() {
     super.initState();
     _load();
     _autoRefresh = Timer.periodic(const Duration(seconds: 5), (_) => _load());
+    _loadRemote();
+    _remoteAutoRefresh = Timer.periodic(const Duration(seconds: 20), (_) => _loadRemote());
   }
 
   @override
   void dispose() {
     _autoRefresh?.cancel();
+    _remoteAutoRefresh?.cancel();
     _ipController.dispose();
     _api.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadRemote() async {
+    if (_remoteLoading) return;
+    setState(() => _remoteLoading = true);
+    try {
+      final device = await _api.getRemoteDiagnostics('BP-AMS-001');
+      if (mounted) {
+        setState(() {
+          _remoteData = device;
+          _remoteError = device == null ? 'No remote diagnostics reported yet' : null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _remoteError = '$e');
+    } finally {
+      if (mounted) setState(() => _remoteLoading = false);
+    }
   }
 
   Future<void> _load() async {
@@ -139,6 +167,7 @@ class _NetworkControlScreenState extends State<NetworkControlScreen> {
   @override
   Widget build(BuildContext context) {
     final d = _data;
+    final rd = _remoteData;
     final networks = (d?['wifiNetworks'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     final ltePercent = (d?['lteSignalPercent'] as num?)?.toInt();
     final lteEnabled = d?['lteInternetEnabled'] == true;
@@ -325,31 +354,6 @@ class _NetworkControlScreenState extends State<NetworkControlScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  const Text('REMOTE CONTROL', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Works from anywhere via the cloud (unlike everything above, which needs your phone on the board\'s own network) — the board checks for this within a minute.',
-                    style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _sendingRemoteCommand ? null : () => _setRemoteTransport('WIFI'),
-                          child: const Text('PREFER WIFI', style: TextStyle(fontSize: 11)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _sendingRemoteCommand ? null : () => _setRemoteTransport('LTE'),
-                          child: const Text('PREFER LTE', style: TextStyle(fontSize: 11)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
                   const Text('FULL DIAGNOSTICS', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
                   const SizedBox(height: 4),
                   const Text('Same data as Master Telemetry — merged here so testing doesn\'t need two separate screens.', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10)),
@@ -404,6 +408,91 @@ class _NetworkControlScreenState extends State<NetworkControlScreen> {
                   ]),
                   _section('Last Event', [
                     Text('${d?['lastEvent']}', style: const TextStyle(fontSize: 12, color: NeumorphicPalette.textPrimary)),
+                  ]),
+                ],
+                // v5.27_3 — REMOTE CONTROL + REMOTE DIAGNOSTICS moved out of
+                // the `if (d != null)` block above: those two sections work
+                // via the cloud and must NOT depend on the local (same-
+                // network) /status.json fetch succeeding, unlike everything
+                // else on this screen. Previously they were nested inside
+                // that block, so a flaky/unreachable local AP hid the
+                // cloud-based controls too — exactly the controls meant to
+                // be the fallback when the local connection is unreliable.
+                const SizedBox(height: 20),
+                const Text('REMOTE CONTROL', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                const SizedBox(height: 4),
+                const Text(
+                  'Works from anywhere via the cloud (unlike everything above, which needs your phone on the board\'s own network) — the board checks for this within a minute.',
+                  style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _sendingRemoteCommand ? null : () => _setRemoteTransport('WIFI'),
+                        child: const Text('PREFER WIFI', style: TextStyle(fontSize: 11)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _sendingRemoteCommand ? null : () => _setRemoteTransport('LTE'),
+                        child: const Text('PREFER LTE', style: TextStyle(fontSize: 11)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                const Text('REMOTE DIAGNOSTICS', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                const SizedBox(height: 4),
+                const Text(
+                  'Same fields as Full Diagnostics above, reported to the cloud roughly every 90s — works from anywhere, unlike the local section above it.',
+                  style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10),
+                ),
+                const SizedBox(height: 8),
+                if (rd == null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      _remoteLoading ? 'Loading…' : (_remoteError ?? 'No remote diagnostics reported yet'),
+                      style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12),
+                    ),
+                  )
+                else ...[
+                  _section('System', [
+                    _row('Uptime', '${rd['uptimeSec']} sec'),
+                    _row('Free heap', '${rd['freeHeap']} bytes'),
+                    _row('Last updated', '${rd['updatedAt']}'),
+                  ]),
+                  _section('Network', [
+                    _statusRow('WiFi', rd['wifiConnected'] == true, label2: rd['wifiConnected'] == true ? '${rd['wifiSsid']}' : null),
+                    _statusRow('LTE', rd['lteConnected'] == true, label2: rd['lteConnected'] == true ? '${rd['lteSignalPercent']}% signal' : null),
+                  ]),
+                  _section('Cloudflare (device job queue)', [
+                    _row('HTTP code', '${rd['cloudHttpCode']}'),
+                    _statusRow('Download', rd['lastDownloadOk'] == true),
+                    _statusRow('ACK', rd['lastAckOk'] == true),
+                    if ('${rd['lastDownloadFailReason'] ?? ''}'.isNotEmpty) _row('Last failure', '${rd['lastDownloadFailReason']}'),
+                  ]),
+                  _section('EE02 Slave', [
+                    _row('IP', '${rd['slaveIp']}'),
+                    _statusRow('TCP', rd['slaveTcpConnected'] == true),
+                    _statusRow('Pending image', rd['slavePendingImage'] == true),
+                  ]),
+                  _section('GPS / GNSS', [
+                    _statusRow('Modem', rd['gpsModemResponding'] == true),
+                    if (rd['gpsFixValid'] == true)
+                      _row('Fix', '${(rd['gpsLat'] as num).toStringAsFixed(6)}, ${(rd['gpsLon'] as num).toStringAsFixed(6)}')
+                    else
+                      _statusRow('Fix', false, label2: 'No fix yet'),
+                  ]),
+                  _section('Victron SmartSolar (Bluetooth)', [
+                    _statusRow('Seen', rd['victronSeen'] == true, label2: rd['victronSeen'] == true ? null : 'Never decoded a packet yet'),
+                    if (rd['victronSeen'] == true) ...[
+                      _row('Battery', '${rd['victronBatteryVoltage']} V'),
+                      _row('Solar power', '${rd['victronSolarPowerW']} W'),
+                    ],
                   ]),
                 ],
               ],

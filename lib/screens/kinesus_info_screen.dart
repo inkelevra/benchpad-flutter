@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/neumorphic_theme.dart';
 import '../widgets/home_back_leading.dart';
+import 'kinetic_energy_screen.dart';
 
 /// Kinesus Info — ported 1:1 from index.html's #kinesusInfoView: the
 /// same copy, the same purple (#9a66ff) icon colour, the same website/
@@ -95,7 +96,7 @@ class _KinesusInfoScreenState extends State<KinesusInfoScreen> {
               const SizedBox(height: 14),
               _buildContactRow(icon: Icons.public, label: 'Website', value: 'https://kinesus.nl', onTap: () => _openUrl('https://kinesus.nl/')),
               const SizedBox(height: 10),
-              _buildContactRow(icon: Icons.mail_outline, label: 'Email', value: 'kinesus@yahoo.com', onTap: () => _openUrl('mailto:kinesus@yahoo.com')),
+              _buildContactRow(icon: Icons.mail_outline, label: 'Email', value: 'info@kinesus.nl', onTap: () => _openUrl('mailto:info@kinesus.nl')),
               const SizedBox(height: 20),
               const Text('WHAT WE DO', style: TextStyle(color: _purple, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
               const SizedBox(height: 10),
@@ -291,6 +292,23 @@ class _KinesusInfoScreenState extends State<KinesusInfoScreen> {
                           'BenchPad will publish measured energy and environmental indicators only after the physical power system is connected and the calculation method is documented.',
                           style: TextStyle(fontSize: 10.5, color: NeumorphicPalette.textSecondary, height: 1.5),
                         ),
+                        const SizedBox(height: 12),
+                        NeumorphicBox(
+                          soft: true,
+                          borderRadius: 12,
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const KineticEnergyScreen())),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Icon(Icons.bolt, color: NeumorphicPalette.accent, size: 18),
+                                SizedBox(width: 10),
+                                Expanded(child: Text('See live battery & solar status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: NeumorphicPalette.textPrimary))),
+                                Icon(Icons.chevron_right, size: 18, color: NeumorphicPalette.textSecondary),
+                              ],
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -411,8 +429,8 @@ class _KinesusInfoScreenState extends State<KinesusInfoScreen> {
                         const SizedBox(height: 2),
                         const Text('Shapi Shakhshaev · BenchPad / Kinesus project', style: TextStyle(fontSize: 10.5, color: NeumorphicPalette.textSecondary)),
                         GestureDetector(
-                          onTap: () => _openUrl('mailto:kinesus@yahoo.com'),
-                          child: const Text('kinesus@yahoo.com', style: TextStyle(fontSize: 10.5, color: _purple)),
+                          onTap: () => _openUrl('mailto:info@kinesus.nl'),
+                          child: const Text('info@kinesus.nl', style: TextStyle(fontSize: 10.5, color: _purple)),
                         ),
                         const Text('Last updated: 25 August 2026', style: TextStyle(fontSize: 10.5, color: NeumorphicPalette.textSecondary)),
                         h4('Technical infrastructure'),
@@ -429,7 +447,7 @@ class _KinesusInfoScreenState extends State<KinesusInfoScreen> {
                         p('Essential technical processing is based on the legitimate interest in securing, delivering and improving the service. Optional functions that legally require consent will be activated only after the relevant choice is made.'),
                         h4('Retention and your rights'),
                         p('Technical and analytical data is retained only for as long as reasonably necessary. Aggregated statistics that no longer identify an individual may be retained for historical project reporting.'),
-                        p('You may request access, correction, deletion, restriction or object to relevant processing by contacting kinesus@yahoo.com. You may also lodge a complaint with the competent data-protection authority.'),
+                        p('You may request access, correction, deletion, restriction or object to relevant processing by contacting info@kinesus.nl. You may also lodge a complaint with the competent data-protection authority.'),
                       ],
                     ),
                   ),

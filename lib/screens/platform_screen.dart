@@ -66,10 +66,9 @@ class _PlatformScreenState extends State<PlatformScreen> {
     );
   }
 
-  // TEMPORARY — gate disabled during active engineering/testing so
-  // password re-entry doesn't slow down back-and-forth debugging.
-  // Set back to false to re-enable the Owner Access requirement.
-  static const _gateTemporarilyDisabled = true;
+  // Re-enabled per owner's request — was temporarily disabled during
+  // active engineering/testing to skip password re-entry.
+  static const _gateTemporarilyDisabled = false;
 
   Widget _buildBody(BuildContext context) {
     if (_gateTemporarilyDisabled) {

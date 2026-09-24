@@ -17,7 +17,7 @@ import 'local_partners_screen.dart';
 import 'offers_screen.dart';
 import 'kinesus_info_screen.dart';
 import 'report_feedback_screen.dart';
-import 'network_screen.dart';
+import 'app_settings_screen.dart';
 import 'bench_engineering_screen.dart';
 
 /// BenchPad Dashboard — the app's home shell, ported from index.html.
@@ -213,7 +213,7 @@ class _HomeScreenState extends State<HomeScreen> {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w800,
-              color: active ? Colors.white : NeumorphicPalette.textSecondary,
+              color: active ? NeumorphicPalette.background : NeumorphicPalette.textSecondary,
             ),
           ),
         ),
@@ -385,7 +385,7 @@ class _HomeScreenState extends State<HomeScreen> {
             navButton((c) => Icon(Icons.home_rounded, color: c, size: 22), active: true, round: true),
             navButton((c) => Icon(Icons.grid_view_rounded, color: c, size: 22), round: true, onTap: () => _push(const PlatformScreen())),
             navButton((c) => Icon(Icons.public, color: c, size: 22), round: true, onTap: () => _push(const BenchPadWorldScreen())),
-            navButton((c) => Icon(Icons.lightbulb_outline, color: c, size: 22), round: true, onTap: () => _push(const NetworkScreen())),
+            navButton((c) => Icon(Icons.lightbulb_outline, color: c, size: 22), round: true, onTap: () => _push(const AppSettingsScreen())),
             navButton(
               (c) => Image.asset('assets/images/benchpad-logo-mark.png', width: 22, height: 22, color: c, colorBlendMode: BlendMode.srcIn),
               round: true,

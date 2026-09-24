@@ -1,15 +1,26 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 import '../models/broadcast_calendar.dart';
+import '../services/benchpad_api.dart';
 import '../services/broadcast_calendar_store.dart';
-import '../theme/neumorphic_theme.dart';
+import '../theme/benchpad_dark_theme.dart';
+import 'advertise_screen.dart';
 
-/// Broadcast Calendar — schedule a capsule's publication moment, ported
-/// from broadcast-calendar.html.
+/// Broadcast Calendar — pick a date and exact minute for a capsule's
+/// publication, then hand off straight into the real, working "Post to
+/// BenchPad" flow (AdvertiseScreen -> PublishFlowScreen) with that
+/// moment attached as scheduledAt. The backend already holds a job
+/// until its scheduled_at passes (`scheduled_at IS NULL OR
+/// scheduled_at<=now()` gates every dispatch query) — no new backend
+/// work needed, this screen only had to stop creating a separate,
+/// disconnected local booking and start reusing the real publish
+/// pipeline instead.
 ///
-/// This is a local-only feature in the PWA itself (no server calls at
-/// all — bookings live in localStorage there, SharedPreferences here).
+/// Deliberately stripped down from the original port: with one real
+/// physical BenchPad and one real display, the bench picker,
+/// LEFT/CENTER/RIGHT display picker, and Standard/Special-Moment mode
+/// toggle were all choices with only one real answer — removed rather
+/// than left as decoration.
 class BroadcastCalendarScreen extends StatefulWidget {
   final String sphere;
   final String capsuleType;
@@ -28,30 +39,24 @@ class BroadcastCalendarScreen extends StatefulWidget {
     this.contentReady = false,
   });
 
-  String get _capsuleKey => '$sphere:$capsuleType:$capsuleNumber';
-
   @override
   State<BroadcastCalendarScreen> createState() => _BroadcastCalendarScreenState();
 }
 
 class _BroadcastCalendarScreenState extends State<BroadcastCalendarScreen> {
   final _store = BroadcastCalendarStore();
+  final _api = BenchpadApi();
 
-  String _selectedBenchId = 'BP-AMS-001';
+  // Single real BenchPad, single real display — neither is a user
+  // choice anymore (see class doc).
+  static const _benchId = 'AUTO-NL'; // resolves to BP-AMS-001
+
   DateTime? _selectedDate;
   DateTime _monthCursor = DateTime(DateTime.now().year, DateTime.now().month);
-  String _mode = 'standard';
   TimeOfDay _selectedTime = const TimeOfDay(hour: 14, minute: 25);
-  String _displaySelection = 'AUTO';
 
-  BroadcastHold? _hold;
-  BroadcastBooking? _booking;
-  Timer? _countdownTimer;
-  Duration _holdRemaining = Duration.zero;
-
-  List<BroadcastInterval> _dayIntervals = [];
   Map<String, dynamic>? _dayAvailability;
-  bool _busy = false;
+  List<BroadcastInterval> _dayIntervals = [];
 
   @override
   void initState() {
@@ -59,12 +64,12 @@ class _BroadcastCalendarScreenState extends State<BroadcastCalendarScreen> {
     final target = DateTime.now().add(const Duration(days: 7));
     _selectedDate = target;
     _monthCursor = DateTime(target.year, target.month);
-    _load();
+    _loadDay();
   }
 
   @override
   void dispose() {
-    _countdownTimer?.cancel();
+    _api.dispose();
     super.dispose();
   }
 
@@ -74,223 +79,96 @@ class _BroadcastCalendarScreenState extends State<BroadcastCalendarScreen> {
 
   String get _timeStr => '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}';
 
-  Future<void> _load() async {
-    _booking = await _store.bookingForCapsule(widget._capsuleKey);
-    _hold = await _store.activeHoldForCapsule(widget._capsuleKey);
-    if (_hold != null) {
-      _selectedBenchId = _hold!.benchSelectionId;
-      final parts = _hold!.date.split('-').map(int.parse).toList();
-      _selectedDate = DateTime(parts[0], parts[1], parts[2]);
-      _mode = _hold!.mode;
-      final timeParts = _hold!.start.split(':').map(int.parse).toList();
-      _selectedTime = TimeOfDay(hour: timeParts[0], minute: timeParts[1]);
-      _startCountdown();
-    } else if (_booking != null) {
-      _selectedBenchId = _booking!.benchSelectionId;
-      final parts = _booking!.date.split('-').map(int.parse).toList();
-      _selectedDate = DateTime(parts[0], parts[1], parts[2]);
-      _mode = _booking!.mode;
-    }
-    await _loadDay();
-    if (mounted) setState(() {});
-  }
-
   Future<void> _loadDay() async {
     if (_selectedDate == null) return;
-    final bench = BroadcastBench.resolve(_selectedBenchId);
+    final bench = BroadcastBench.resolve(_benchId);
     final intervals = await _store.intervals(_dateStr, bench.id);
     final availability = await _store.availability(_dateStr, bench.id);
     if (mounted) setState(() { _dayIntervals = intervals; _dayAvailability = availability; });
   }
 
-  void _startCountdown() {
-    _countdownTimer?.cancel();
-    if (_hold == null) return;
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      final remaining = _hold!.expiresAt.difference(DateTime.now());
-      if (remaining.isNegative) {
-        t.cancel();
-        setState(() { _hold = null; _holdRemaining = Duration.zero; });
-        return;
-      }
-      setState(() => _holdRemaining = remaining);
-    });
-  }
+  bool _checkingSlot = false;
 
-  Future<void> _createHold() async {
+  Future<void> _continueToPost() async {
     if (_selectedDate == null) return;
-    setState(() => _busy = true);
-    try {
-      final hold = await _store.holdSlot(
-        capsuleKey: widget._capsuleKey,
-        sphere: widget.sphere,
-        capsuleType: widget.capsuleType,
-        capsuleNumber: widget.capsuleNumber,
-        benchSelectionId: _selectedBenchId,
-        date: _dateStr,
-        start: _timeStr,
-        displayId: _displaySelection,
-        mode: _mode,
-      );
-      setState(() => _hold = hold);
-      _startCountdown();
-      await _loadDay();
-    } catch (e) {
-      _toast(e.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
+    final d = _selectedDate!;
+    final scheduledAt = DateTime(d.year, d.month, d.day, _selectedTime.hour, _selectedTime.minute);
+    if (scheduledAt.isBefore(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('That moment is already in the past — pick a later date or time.')));
+      return;
     }
-  }
 
-  Future<void> _confirmBooking() async {
-    if (_hold == null) return;
-    setState(() => _busy = true);
+    setState(() => _checkingSlot = true);
+    bool conflict;
     try {
-      final booking = await _store.confirmHold(
-        _hold!.id,
-        owner: widget.ownerName,
-        country: widget.ownerCountry,
-        contentReady: widget.contentReady,
-      );
-      _countdownTimer?.cancel();
-      setState(() { _booking = booking; _hold = null; });
-      await _loadDay();
-      _toast(booking.allocationRequest ? 'Special Moment request submitted' : 'Broadcast booking confirmed');
+      // The display is shared across all three Time Capsules — this
+      // checks every scheduled job, not just ones from this capsule.
+      conflict = await _api.checkSlotConflict(scheduledAt);
     } catch (e) {
-      _toast(e.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      if (!mounted) return;
+      setState(() => _checkingSlot = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not check that time slot: $e')));
+      return;
     }
-  }
+    if (!mounted) return;
+    setState(() => _checkingSlot = false);
 
-  Future<void> _releaseHold() async {
-    if (_hold == null) return;
-    await _store.releaseHold(_hold!.id);
-    _countdownTimer?.cancel();
-    setState(() { _hold = null; _holdRemaining = Duration.zero; });
-    await _loadDay();
-  }
+    if (conflict) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('That moment is already taken by another publication (from any Time Capsule) — pick a different time.')));
+      return;
+    }
 
-  Future<void> _cancelBooking() async {
-    if (_booking == null) return;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: NeumorphicPalette.background,
-        titleTextStyle: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
-        contentTextStyle: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 14),
-        title: const Text('Cancel this BenchPad booking?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep booking')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Cancel booking', style: TextStyle(color: NeumorphicPalette.danger))),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    await _store.cancelBooking(_booking!.id);
-    setState(() => _booking = null);
-    await _loadDay();
-    _toast('Booking cancelled');
+    Navigator.push(context, MaterialPageRoute(builder: (_) => AdvertiseScreen(scheduledAt: scheduledAt)));
   }
-
-  void _toast(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   @override
   Widget build(BuildContext context) {
     return Theme(
       data: Theme.of(context).copyWith(
-        scaffoldBackgroundColor: NeumorphicPalette.background,
+        scaffoldBackgroundColor: BPColors.bg,
         appBarTheme: const AppBarTheme(
-          backgroundColor: NeumorphicPalette.background,
-          foregroundColor: NeumorphicPalette.textPrimary,
+          backgroundColor: BPColors.bg,
+          foregroundColor: BPColors.textPrimary,
           elevation: 0,
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
         ),
+        textTheme: Theme.of(context).textTheme.apply(bodyColor: BPColors.textPrimary, displayColor: BPColors.textPrimary),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(backgroundColor: BPColors.yellow, foregroundColor: BPColors.bg, disabledBackgroundColor: BPColors.border, disabledForegroundColor: BPColors.textSecondary),
+        ),
         outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(foregroundColor: NeumorphicPalette.textPrimary, disabledForegroundColor: NeumorphicPalette.textSecondary, side: const BorderSide(color: NeumorphicPalette.accent)),
+          style: OutlinedButton.styleFrom(foregroundColor: BPColors.textPrimary, disabledForegroundColor: BPColors.textSecondary, side: const BorderSide(color: BPColors.yellow)),
         ),
         textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(foregroundColor: NeumorphicPalette.accent),
+          style: TextButton.styleFrom(foregroundColor: BPColors.yellow),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: NeumorphicPalette.background,
-          labelStyle: const TextStyle(color: NeumorphicPalette.textSecondary),
-          floatingLabelStyle: const TextStyle(color: NeumorphicPalette.accent),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.shadowDark)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.shadowDark)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: NeumorphicPalette.accent, width: 1.5)),
+          fillColor: BPColors.card,
+          labelStyle: const TextStyle(color: BPColors.textSecondary),
+          floatingLabelStyle: const TextStyle(color: BPColors.yellow),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.border)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.border)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: BPColors.yellow, width: 1.5)),
         ),
       ),
       child: Scaffold(
-      appBar: AppBar(title: const Text('Schedule Your Moment')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text(
-            'Choose the BenchPad, local date and exact starting minute for your capsule publication.',
-            style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 12),
-          ),
-          const SizedBox(height: 16),
-          if (_booking != null) _buildBookingCard() else ...[
-            _buildBenchPicker(),
-            const SizedBox(height: 20),
+        appBar: AppBar(title: const Text('Schedule Your Moment')),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text(
+              'Choose the date and exact starting minute for your capsule publication on BP-AMS-001.',
+              style: TextStyle(color: BPColors.textSecondary, fontSize: 12),
+            ),
+            const SizedBox(height: 16),
             _buildCalendar(),
             const SizedBox(height: 20),
             _buildTimeSelector(),
-            const SizedBox(height: 16),
-            if (_hold != null) _buildHoldBox(),
           ],
-        ],
+        ),
       ),
-    ));
-  }
-
-  Widget _buildBenchPicker() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('WHERE SHOULD YOUR MESSAGE APPEAR?', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
-        const SizedBox(height: 10),
-        ...BroadcastBench.all.map((bench) {
-          final active = bench.id == _selectedBenchId;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: bench.bookable ? () { setState(() => _selectedBenchId = bench.id); _loadDay(); } : null,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: bench.bookable ? NeumorphicPalette.background : NeumorphicPalette.background.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: active ? NeumorphicPalette.accent : Colors.transparent, width: 1.5),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(bench.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                          const SizedBox(height: 3),
-                          Text(bench.note, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 10)),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(999)),
-                      child: Text(bench.status, style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }),
-      ],
     );
   }
 
@@ -304,7 +182,7 @@ class _BroadcastCalendarScreenState extends State<BroadcastCalendarScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('CHOOSE A LOCAL BENCHPAD DATE', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+        const Text('CHOOSE A DATE', style: TextStyle(color: BPColors.yellow, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
         const SizedBox(height: 10),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -330,15 +208,15 @@ class _BroadcastCalendarScreenState extends State<BroadcastCalendarScreen> {
               onTap: isPast ? null : () { setState(() { _selectedDate = date; }); _loadDay(); },
               child: Container(
                 decoration: BoxDecoration(
-                  color: isSelected ? NeumorphicPalette.accent.withOpacity(0.15) : NeumorphicPalette.background,
+                  color: isSelected ? BPColors.yellow.withOpacity(0.15) : BPColors.card,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: isSelected ? NeumorphicPalette.accent : Colors.transparent),
+                  border: Border.all(color: isSelected ? BPColors.yellow : Colors.transparent),
                 ),
                 child: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('${date.day}', style: TextStyle(fontSize: 11, color: isOther || isPast ? NeumorphicPalette.textSecondary : NeumorphicPalette.textPrimary)),
+                      Text('${date.day}', style: TextStyle(fontSize: 11, color: isOther || isPast ? BPColors.textSecondary : BPColors.textPrimary)),
                       if (isSpecial) const Icon(Icons.star, size: 8, color: Color(0xFFB486FF)),
                     ],
                   ),
@@ -362,8 +240,8 @@ class _BroadcastCalendarScreenState extends State<BroadcastCalendarScreen> {
       children: [
         Row(
           children: [
-            const Expanded(child: Text('SELECT THE EXACT STARTING MINUTE', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1))),
-            Text(availabilityLabel.toUpperCase(), style: const TextStyle(fontSize: 9, color: NeumorphicPalette.textSecondary)),
+            const Expanded(child: Text('SELECT THE EXACT STARTING MINUTE', style: TextStyle(color: BPColors.yellow, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1))),
+            Text(availabilityLabel.toUpperCase(), style: const TextStyle(fontSize: 9, color: BPColors.textSecondary)),
           ],
         ),
         if (specialEvent != null) ...[
@@ -374,72 +252,55 @@ class _BroadcastCalendarScreenState extends State<BroadcastCalendarScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('SPECIAL EVENT ALLOCATION', style: TextStyle(color: Color(0xFFB486FF), fontSize: 8, fontWeight: FontWeight.w800)),
+                const Text('HIGH-DEMAND DATE', style: TextStyle(color: Color(0xFFB486FF), fontSize: 8, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
                 Text(specialEvent.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                const SizedBox(height: 4),
+                const Text('This date sees more requests than usual — your slot may fill up faster.', style: TextStyle(color: BPColors.textSecondary, fontSize: 10)),
               ],
             ),
           ),
         ],
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: ChoiceChip(
-                label: const Text('Standard Broadcast'),
-                selected: _mode == 'standard',
-                onSelected: specialEvent != null ? null : (_) => setState(() => _mode = 'standard'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: ChoiceChip(
-                label: const Text('Special Moment'),
-                selected: _mode == 'special',
-                onSelected: (_) => setState(() => _mode = 'special'),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('BenchPad local start', style: TextStyle(color: NeumorphicPalette.textPrimary)),
-          subtitle: Text(_timeStr, style: const TextStyle(color: NeumorphicPalette.textSecondary)),
-          trailing: const Icon(Icons.access_time, color: NeumorphicPalette.textSecondary),
+        InkWell(
+          borderRadius: BorderRadius.circular(14),
           onTap: () async {
             final picked = await showTimePicker(context: context, initialTime: _selectedTime);
             if (picked != null) setState(() => _selectedTime = picked);
           },
-        ),
-        DropdownButtonFormField<String>(
-          style: const TextStyle(color: NeumorphicPalette.textPrimary, fontSize: 14),
-          dropdownColor: NeumorphicPalette.background,
-          value: _displaySelection,
-          decoration: const InputDecoration(labelText: 'Display'),
-          items: const [
-            DropdownMenuItem(value: 'AUTO', child: Text('Automatically assign')),
-            DropdownMenuItem(value: 'LEFT', child: Text('Left display')),
-            DropdownMenuItem(value: 'CENTER', child: Text('Center display')),
-            DropdownMenuItem(value: 'RIGHT', child: Text('Right display')),
-          ],
-          onChanged: (v) => setState(() => _displaySelection = v ?? 'AUTO'),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: BPColors.card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: BPColors.yellow.withOpacity(0.6)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.access_time, color: BPColors.yellow, size: 20),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text('BenchPad local start', style: TextStyle(color: BPColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+                Text(_timeStr, style: const TextStyle(color: BPColors.yellow, fontSize: 16, fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ),
         ),
         const SizedBox(height: 12),
         if (_dayIntervals.isNotEmpty) ...[
-          const Text('DAY OCCUPANCY', style: TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 9, fontWeight: FontWeight.w800)),
+          const Text('DAY OCCUPANCY', style: TextStyle(color: BPColors.textSecondary, fontSize: 9, fontWeight: FontWeight.w800)),
           const SizedBox(height: 6),
           ..._dayIntervals.map((i) => Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(10)),
+                  decoration: BoxDecoration(color: BPColors.card, borderRadius: BorderRadius.circular(10)),
                   child: Row(
                     children: [
                       Text('${i.start}–${i.end}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
                       const SizedBox(width: 8),
-                      Expanded(child: Text(i.label, style: const TextStyle(fontSize: 10, color: NeumorphicPalette.textSecondary))),
-                      Text(i.displayId, style: const TextStyle(fontSize: 9, color: NeumorphicPalette.accent)),
+                      Expanded(child: Text(i.label, style: const TextStyle(fontSize: 10, color: BPColors.textSecondary))),
                     ],
                   ),
                 ),
@@ -447,109 +308,10 @@ class _BroadcastCalendarScreenState extends State<BroadcastCalendarScreen> {
           const SizedBox(height: 12),
         ],
         ElevatedButton(
-          onPressed: _busy || _hold != null ? null : _createHold,
-          child: const Text('HOLD THIS TIME FOR 10 MINUTES'),
+          onPressed: _checkingSlot ? null : _continueToPost,
+          child: Text(_checkingSlot ? 'CHECKING SLOT…' : 'CONTINUE TO POST'),
         ),
       ],
-    );
-  }
-
-  Widget _buildHoldBox() {
-    final m = _holdRemaining.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = _holdRemaining.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: const Color(0xFFFFD84D).withOpacity(0.06), borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFFFD84D).withOpacity(0.3))),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(_hold!.allocationRequest ? 'Your Special Moment request is held for confirmation.' : 'This time is reserved for you.',
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFFFFE58B))),
-          const SizedBox(height: 4),
-          Text('Expires in $m:$s', style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 11)),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(child: ElevatedButton(onPressed: _busy ? null : _confirmBooking, child: const Text('CONFIRM BOOKING'))),
-              const SizedBox(width: 8),
-              Expanded(child: OutlinedButton(onPressed: _releaseHold, child: const Text('RELEASE'))),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBookingCard() {
-    final booking = _booking!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Expanded(child: Text('MY BROADCAST', style: TextStyle(color: NeumorphicPalette.accent, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1))),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(color: const Color(0xFFFFD84D).withOpacity(0.1), borderRadius: BorderRadius.circular(999)),
-              child: Text(_store.statusLabel(booking.status).toUpperCase(), style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Color(0xFFFFE684))),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 8,
-          mainAxisSpacing: 8,
-          childAspectRatio: 2.2,
-          children: [
-            _summaryCell('BENCHPAD', booking.benchName),
-            _summaryCell('DISPLAY', booking.displayId),
-            _summaryCell('LOCAL TIME', '${booking.date} · ${booking.localStart}–${booking.localEnd}'),
-            _summaryCell('DEADLINE', _store.formatInZone(booking.contentDeadline, booking.timezone)),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            OutlinedButton(
-              onPressed: () => Share.share(_store.buildIcs(booking), subject: '${booking.capsuleId}-BenchPad-Broadcast.ics'),
-              child: const Text('SHARE .ICS'),
-            ),
-            OutlinedButton(
-              onPressed: () {
-                setState(() => _booking = null);
-                _loadDay();
-              },
-              child: const Text('RESCHEDULE'),
-            ),
-            OutlinedButton(
-              onPressed: _cancelBooking,
-              style: OutlinedButton.styleFrom(foregroundColor: NeumorphicPalette.danger, side: const BorderSide(color: NeumorphicPalette.danger)),
-              child: const Text('CANCEL BOOKING'),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _summaryCell(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(color: NeumorphicPalette.background, borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(label, style: const TextStyle(color: NeumorphicPalette.textSecondary, fontSize: 7, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 3),
-          Text(value, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700), maxLines: 2, overflow: TextOverflow.ellipsis),
-        ],
-      ),
     );
   }
 }
