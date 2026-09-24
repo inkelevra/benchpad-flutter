@@ -164,6 +164,22 @@ class _NetworkControlScreenState extends State<NetworkControlScreen> {
     }
   }
 
+  bool _sendingRemoteWifiForce = false;
+
+  Future<void> _setRemoteWifiForceDisabled(bool disabled) async {
+    setState(() => _sendingRemoteWifiForce = true);
+    try {
+      await _api.setWifiForceDisabled('BP-AMS-001', disabled);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent — board checks for this within a minute.')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Command failed: $e')));
+    } finally {
+      if (mounted) setState(() => _sendingRemoteWifiForce = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final d = _data;
@@ -439,6 +455,28 @@ class _NetworkControlScreenState extends State<NetworkControlScreen> {
                       child: OutlinedButton(
                         onPressed: _sendingRemoteCommand ? null : () => _setRemoteTransport('LTE'),
                         child: const Text('PREFER LTE', style: TextStyle(fontSize: 11)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // v5.28 — remote counterpart of "Force WiFi off" above
+                // (which requires being on the board's own local AP).
+                // This is the fix for exactly that: send-from-anywhere,
+                // same as Prefer WiFi/LTE right above.
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _sendingRemoteWifiForce ? null : () => _setRemoteWifiForceDisabled(true),
+                        child: const Text('FORCE WIFI OFF', style: TextStyle(fontSize: 11)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _sendingRemoteWifiForce ? null : () => _setRemoteWifiForceDisabled(false),
+                        child: const Text('RESTORE WIFI', style: TextStyle(fontSize: 11)),
                       ),
                     ),
                   ],

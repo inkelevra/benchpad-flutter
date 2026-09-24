@@ -1622,6 +1622,19 @@ class BenchpadApi {
     if (res.statusCode < 200 || res.statusCode >= 300 || data['ok'] != true) throw Exception(data['error'] ?? 'Command failed');
   }
 
+  /// v5.28 — remote counterpart of Network Control's local-only "Force
+  /// WiFi off" toggle. Same /api/device/network-command endpoint as
+  /// setPreferredNetworkTransport above, just the other field.
+  Future<void> setWifiForceDisabled(String deviceId, bool disabled) async {
+    final res = await _client.post(
+      _uri('/api/device/network-command'),
+      headers: {'content-type': 'application/json'},
+      body: jsonEncode({'deviceId': deviceId, 'wifiForceDisabled': disabled}),
+    );
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    if (res.statusCode < 200 || res.statusCode >= 300 || data['ok'] != true) throw Exception(data['error'] ?? 'Command failed');
+  }
+
   /// GET /api/capsules/sphere?sphere=orbit|vault — real capsule data
   /// from the database (only non-empty ones; positions with no row
   /// are genuinely empty). Used by Memory/Time Capsule 1 instead of the
