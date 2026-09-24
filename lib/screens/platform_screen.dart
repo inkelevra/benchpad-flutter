@@ -66,9 +66,11 @@ class _PlatformScreenState extends State<PlatformScreen> {
     );
   }
 
-  // Re-enabled per owner's request — was temporarily disabled during
-  // active engineering/testing to skip password re-entry.
-  static const _gateTemporarilyDisabled = false;
+  // Temporarily disabled per owner's request, to skip password
+  // re-entry after every fresh install during active engineering/
+  // testing. Re-enable (set back to false) before any public/
+  // Kickstarter-facing build.
+  static const _gateTemporarilyDisabled = true;
 
   Widget _buildBody(BuildContext context) {
     if (_gateTemporarilyDisabled) {
