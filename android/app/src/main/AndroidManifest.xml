@@ -11,6 +11,12 @@
     <!-- Required on Android 13+ to show the publish-result notification
          (permission is also requested at runtime). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Required for all network access (API calls, image downloads,
+         cloud commands) — was missing, which silently broke every
+         network request in the app (SocketException / failed host
+         lookup on every call), while the system browser (its own app,
+         with its own INTERNET permission) kept working fine. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="benchpad_app"
         android:name="${applicationName}"
